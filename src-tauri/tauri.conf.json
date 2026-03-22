@@ -1,0 +1,32 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicegui/nicegui/refs/heads/main/tauri.conf.json",
+  "productName": "Turing Smart Screen",
+  "version": "0.1.0",
+  "identifier": "com.turing-smart-screen.app",
+  "build": {
+    "frontendDist": "../src",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "",
+    "beforeBuildCommand": ""
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "Turing Smart Screen",
+        "width": 480,
+        "height": 320,
+        "resizable": false,
+        "decorations": false,
+        "visible": true,
+        "skipTaskbar": true,
+        "label": "monitor"
+      }
+    ]
+  },
+  "bundle": {
+    "resources": [
+      "external/lhm/*"
+    ]
+  }
+}

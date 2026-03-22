@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=480, height=320, initial-scale=1.0" />
+  <title>Turing Smart Screen</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="monitor">
+    <div class="card" id="cpu-card">
+      <div class="card-header">CPU</div>
+      <div class="card-value" id="cpu-temp">--&deg;C</div>
+      <div class="card-sub" id="cpu-freq">-- MHz</div>
+      <div class="progress-container">
+        <div class="progress-bar" id="cpu-bar" style="width: 0%"></div>
+      </div>
+      <div class="card-label" id="cpu-usage">0%</div>
+    </div>
+
+    <div class="card" id="gpu-card">
+      <div class="card-header">GPU</div>
+      <div class="card-value" id="gpu-temp">--&deg;C</div>
+      <div class="card-sub" id="gpu-freq">-- MHz</div>
+      <div class="progress-container">
+        <div class="progress-bar" id="gpu-bar" style="width: 0%"></div>
+      </div>
+      <div class="card-label" id="gpu-usage">0%</div>
+    </div>
+
+    <div class="card" id="mem-card">
+      <div class="card-header">MEMORY</div>
+      <div class="card-value" id="mem-text">-- / -- GB</div>
+      <div class="progress-container">
+        <div class="progress-bar" id="mem-bar" style="width: 0%"></div>
+      </div>
+      <div class="card-label" id="mem-usage">0%</div>
+    </div>
+
+    <div class="card" id="disk-card">
+      <div class="card-header">DISK</div>
+      <div class="card-value" id="disk-text">-- / -- GB</div>
+      <div class="progress-container">
+        <div class="progress-bar" id="disk-bar" style="width: 0%"></div>
+      </div>
+      <div class="card-label" id="disk-usage">0%</div>
+    </div>
+
+    <div class="card" id="net-card">
+      <div class="card-header">NETWORK</div>
+      <div class="card-value" id="net-up">&uarr; -- KB/s</div>
+      <div class="card-sub" id="net-down">&darr; -- KB/s</div>
+    </div>
+
+    <div class="card" id="clock-card">
+      <div class="card-header">TIME</div>
+      <div class="card-value" id="clock-time">--:--</div>
+      <div class="card-sub" id="clock-date">----</div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

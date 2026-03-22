@@ -1,0 +1,20 @@
+---
+config:
+  COM_PORT: "AUTO"
+  THEME: "default"
+  HW_SENSORS: "AUTO"
+  ETH: ""
+  WLO: ""
+  CPU_FAN: "AUTO"
+  PING: "8.8.8.8"
+  WEATHER_API_KEY: ""
+  WEATHER_LATITUDE: 45.75
+  WEATHER_LONGITUDE: 4.85
+  WEATHER_UNITS: "metric"
+  WEATHER_LANGUAGE: "en"
+
+display:
+  REVISION: "A"
+  BRIGHTNESS: 20
+  DISPLAY_REVERSE: false
+  RESET_ON_STARTUP: true
