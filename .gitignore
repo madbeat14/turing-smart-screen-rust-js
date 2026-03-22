@@ -12,6 +12,9 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Claude Code
+.claude/
+
 # Environment
 .env
 .env.*
