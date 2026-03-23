@@ -59,12 +59,13 @@ fn main() {
                 std::sync::Arc::new(std::sync::Mutex::new(lhm::LhmSensorData::default()))
             };
 
-            // Move monitor window off-screen at startup — the virtual monitor
-            // is hidden by default. User clicks "Show Monitor" in tray to see it.
-            // We keep it "visible" (not hidden) so WebView2 continues rendering
-            // content for the physical display screenshot capture.
+            // Start the monitor window off-screen, then make it visible so
+            // WebView2 keeps rendering (needed for screenshot capture).
+            // The window starts with visible:false in tauri.conf.json to
+            // prevent a brief flash on the desktop at startup.
             if let Some(monitor_win) = app_handle.get_webview_window("monitor") {
                 let _ = monitor_win.set_position(tauri::PhysicalPosition::new(-9999, -9999));
+                let _ = monitor_win.show();
             }
 
             // Set up system tray
