@@ -141,6 +141,7 @@ impl FrameDiffer {
     }
 
     /// Check if the previous frame is empty (first frame)
+    #[allow(dead_code)] // Public API for potential future use
     pub fn has_previous_frame(&self) -> bool {
         !self.prev_frame.is_empty()
     }
@@ -180,6 +181,7 @@ fn merge_vertical(rects: &mut Vec<DirtyRect>) {
 }
 
 /// Extract a rectangular sub-region from RGB565 frame data
+#[allow(dead_code)] // Used in tests, available for future protocol optimizations
 pub fn extract_region(frame: &[u8], screen_width: u16, rect: &DirtyRect) -> Vec<u8> {
     let stride = (screen_width as usize) * 2;
     let region_stride = (rect.w as usize) * 2;

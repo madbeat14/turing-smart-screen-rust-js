@@ -17,7 +17,9 @@ use std::sync::{Arc, Mutex};
 static LHM_PROCESS: Mutex<Option<Child>> = Mutex::new(None);
 
 /// Sensor data parsed from LhmService JSON output.
+/// All fields are populated from LhmService; some may not be used by this app yet.
 #[derive(Debug, Clone, Default, Deserialize)]
+#[allow(dead_code)]
 pub struct LhmSensorData {
     pub cpu_temp: Option<f64>,
     pub cpu_usage: Option<f64>,

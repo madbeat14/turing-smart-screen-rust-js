@@ -35,6 +35,7 @@ pub fn rgba_to_rgb565_be(rgba: &[u8]) -> Vec<u8> {
 }
 
 /// Convert RGBA pixel buffer to BGR byte order (for Rev C)
+#[allow(dead_code)] // Available for Rev C partial update format
 pub fn rgba_to_bgr(rgba: &[u8]) -> Vec<u8> {
     let pixel_count = rgba.len() / 4;
     let mut out = Vec::with_capacity(pixel_count * 3);
@@ -65,6 +66,7 @@ pub fn rgba_to_bgra(rgba: &[u8]) -> Vec<u8> {
 
 /// Convert RGBA to compressed BGRA (for Rev C partial updates)
 /// Alpha is reduced to 4 bits and packed into the B and G channels' lower bits
+#[allow(dead_code)] // Planned for Rev C optimized partial updates
 pub fn rgba_to_compressed_bgra(rgba: &[u8]) -> Vec<u8> {
     let pixel_count = rgba.len() / 4;
     let mut out = Vec::with_capacity(pixel_count * 3);
@@ -80,6 +82,7 @@ pub fn rgba_to_compressed_bgra(rgba: &[u8]) -> Vec<u8> {
 }
 
 /// Convert RGB pixel buffer (no alpha) to RGB565 little-endian
+#[allow(dead_code)] // Available for non-RGBA input sources
 pub fn rgb_to_rgb565_le(rgb: &[u8]) -> Vec<u8> {
     let pixel_count = rgb.len() / 3;
     let mut out = Vec::with_capacity(pixel_count * 2);

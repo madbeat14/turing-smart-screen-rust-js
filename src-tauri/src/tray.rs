@@ -55,7 +55,9 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
                 "toggle_boot" => {
                     let current = crate::startup::get_run_on_startup();
                     info!("Toggling Start on Boot: {} -> {}", current, !current);
-                    crate::startup::set_run_on_startup(!current);
+                    if let Err(e) = crate::startup::set_run_on_startup(!current) {
+                        log::warn!("Failed to toggle startup: {}", e);
+                    }
                 }
                 "configure" => {
                     info!("Opening settings window");

@@ -80,19 +80,23 @@ pub fn get_run_on_startup() -> bool {
     }
 }
 
-/// Enable or disable startup task.
-pub fn set_run_on_startup(enable: bool) {
+/// Enable or disable startup task. Returns an error message if the operation fails.
+pub fn set_run_on_startup(enable: bool) -> Result<(), String> {
     if enable {
-        create_startup_task();
+        create_startup_task()
     } else {
-        delete_startup_task();
+        delete_startup_task()
     }
 }
 
-fn create_startup_task() {
+fn create_startup_task() -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        let exe_path = env::current_exe().unwrap_or_default();
+        let exe_path = env::current_exe().map_err(|e| {
+            let msg = format!("Could not determine executable path: {}", e);
+            warn!("{}", msg);
+            msg
+        })?;
         let exe_str = exe_path.to_string_lossy();
         let author = env::var("USERNAME").unwrap_or_else(|_| "User".to_string());
 
@@ -100,7 +104,15 @@ fn create_startup_task() {
             .replace("{AUTHOR}", &author)
             .replace("{EXE_PATH}", &exe_str);
 
-        let temp_xml_path = env::temp_dir().join("turing_screen_startup.xml");
+        // Use a unique temp filename to prevent TOCTOU race
+        let unique_name = format!(
+            "turing_screen_startup_{}.xml",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        );
+        let temp_xml_path = env::temp_dir().join(unique_name);
 
         // Write UTF-16 LE with BOM (schtasks requires this format)
         let mut utf16_bom: Vec<u8> = vec![0xFF, 0xFE];
@@ -110,8 +122,9 @@ fn create_startup_task() {
         }
 
         if let Err(e) = fs::write(&temp_xml_path, utf16_bom) {
-            warn!("Failed to write startup task XML: {}", e);
-            return;
+            let msg = format!("Failed to write startup task XML: {}", e);
+            warn!("{}", msg);
+            return Err(msg);
         }
 
         let path_str = temp_xml_path.to_string_lossy().to_string();
@@ -122,29 +135,34 @@ fn create_startup_task() {
             .creation_flags(CREATE_NO_WINDOW)
             .output();
 
+        let _ = fs::remove_file(&temp_xml_path);
+
         match output {
             Ok(out) if out.status.success() => {
                 info!("Startup task created successfully");
+                Ok(())
             }
             Ok(out) => {
                 let stderr = String::from_utf8_lossy(&out.stderr);
-                warn!("schtasks create failed: {}", stderr);
-                // Fallback: try elevated via PowerShell
-                elevated_schtasks(&format!(
-                    "/Create /TN \"{}\" /XML \"{}\" /F",
-                    TASK_NAME, path_str
-                ));
+                let msg = format!("Failed to create startup task: {}", stderr.trim());
+                warn!("{}", msg);
+                Err(msg)
             }
             Err(e) => {
-                warn!("Failed to run schtasks: {}", e);
+                let msg = format!("Failed to run schtasks: {}", e);
+                warn!("{}", msg);
+                Err(msg)
             }
         }
+    }
 
-        let _ = fs::remove_file(temp_xml_path);
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("Startup task management is only supported on Windows".into())
     }
 }
 
-fn delete_startup_task() {
+fn delete_startup_task() -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         let output = Command::new("schtasks")
@@ -155,32 +173,24 @@ fn delete_startup_task() {
         match output {
             Ok(out) if out.status.success() => {
                 info!("Startup task deleted successfully");
+                Ok(())
             }
             Ok(out) => {
                 let stderr = String::from_utf8_lossy(&out.stderr);
-                warn!("schtasks delete failed: {}", stderr);
-                elevated_schtasks(&format!("/Delete /TN \"{}\" /F", TASK_NAME));
+                let msg = format!("Failed to delete startup task: {}", stderr.trim());
+                warn!("{}", msg);
+                Err(msg)
             }
             Err(e) => {
-                warn!("Failed to run schtasks: {}", e);
+                let msg = format!("Failed to run schtasks: {}", e);
+                warn!("{}", msg);
+                Err(msg)
             }
         }
     }
-}
 
-/// Fallback: run schtasks via elevated PowerShell.
-#[cfg(target_os = "windows")]
-fn elevated_schtasks(args: &str) {
-    let _ = Command::new("powershell")
-        .args([
-            "-WindowStyle",
-            "Hidden",
-            "-Command",
-            &format!(
-                "Start-Process schtasks -ArgumentList '{}' -WindowStyle Hidden -Verb RunAs -Wait",
-                args
-            ),
-        ])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output();
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("Startup task management is only supported on Windows".into())
+    }
 }

@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: https://ipc.localhost" />
   <title>Settings — Turing Smart Screen</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -199,9 +200,10 @@
     });
 
     // Start on Boot — applied immediately (not part of config save)
-    invoke('get_run_on_startup').then(enabled => {
-      $startOnBoot.checked = enabled;
-    });
+    invoke('get_run_on_startup')
+      .then(enabled => { $startOnBoot.checked = enabled; })
+      .catch(e => showStatus('Failed to read startup setting: ' + e, true));
+
     $startOnBoot.addEventListener('change', async () => {
       try {
         await invoke('set_run_on_startup', { enable: $startOnBoot.checked });
@@ -211,6 +213,38 @@
         $startOnBoot.checked = !$startOnBoot.checked;
       }
     });
+
+    // Validate theme name: alphanumeric, hyphens, underscores only
+    function isValidTheme(name) {
+      return /^[a-z0-9_-]{1,64}$/i.test(name);
+    }
+
+    // Build a new config object from current form values (immutable — no mutation of source)
+    function buildConfigFromForm(cfg) {
+      var themeValue = $theme.value.trim();
+      return {
+        config: {
+          COM_PORT: $comPort.value,
+          THEME: themeValue,
+          HW_SENSORS: cfg.config.HW_SENSORS,
+          ETH: cfg.config.ETH,
+          WLO: cfg.config.WLO,
+          CPU_FAN: cfg.config.CPU_FAN,
+          PING: cfg.config.PING,
+          WEATHER_API_KEY: '',
+          WEATHER_LATITUDE: cfg.config.WEATHER_LATITUDE,
+          WEATHER_LONGITUDE: cfg.config.WEATHER_LONGITUDE,
+          WEATHER_UNITS: cfg.config.WEATHER_UNITS,
+          WEATHER_LANGUAGE: cfg.config.WEATHER_LANGUAGE
+        },
+        display: {
+          REVISION: $revision.value,
+          BRIGHTNESS: parseInt($brightness.value, 10),
+          DISPLAY_REVERSE: $displayReverse.checked,
+          RESET_ON_STARTUP: $resetOnStartup.checked
+        }
+      };
+    }
 
     async function loadConfig() {
       try {
@@ -238,16 +272,13 @@
     }
 
     document.getElementById('btn-save').addEventListener('click', async () => {
+      if (!isValidTheme($theme.value.trim())) {
+        showStatus('Invalid theme name. Use only letters, numbers, hyphens, and underscores.', true);
+        return;
+      }
       try {
         const cfg = await invoke('get_config');
-        cfg.config.COM_PORT = $comPort.value;
-        cfg.config.THEME = $theme.value;
-        cfg.display.REVISION = $revision.value;
-        cfg.display.BRIGHTNESS = parseInt($brightness.value);
-        cfg.display.DISPLAY_REVERSE = $displayReverse.checked;
-        cfg.display.RESET_ON_STARTUP = $resetOnStartup.checked;
-
-        await invoke('save_config', { newConfig: cfg });
+        await invoke('save_config', { newConfig: buildConfigFromForm(cfg) });
         showStatus('Settings saved. Restart to apply changes.', false);
       } catch (e) {
         showStatus('Failed to save: ' + e, true);
@@ -255,16 +286,13 @@
     });
 
     document.getElementById('btn-apply').addEventListener('click', async () => {
+      if (!isValidTheme($theme.value.trim())) {
+        showStatus('Invalid theme name. Use only letters, numbers, hyphens, and underscores.', true);
+        return;
+      }
       try {
         const cfg = await invoke('get_config');
-        cfg.config.COM_PORT = $comPort.value;
-        cfg.config.THEME = $theme.value;
-        cfg.display.REVISION = $revision.value;
-        cfg.display.BRIGHTNESS = parseInt($brightness.value);
-        cfg.display.DISPLAY_REVERSE = $displayReverse.checked;
-        cfg.display.RESET_ON_STARTUP = $resetOnStartup.checked;
-
-        await invoke('save_config', { newConfig: cfg });
+        await invoke('save_config', { newConfig: buildConfigFromForm(cfg) });
         await invoke('restart_display');
         showStatus('Settings saved and applied!', false);
       } catch (e) {

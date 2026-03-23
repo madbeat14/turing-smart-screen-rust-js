@@ -66,7 +66,13 @@ pub fn sensor_loop(app_handle: AppHandle, lhm_state: Arc<Mutex<LhmSensorData>>) 
         prev_net = curr_net;
 
         // Read LHM sensor data (updated by background reader thread)
-        let lhm = lhm_state.lock().ok().map(|g| g.clone()).unwrap_or_default();
+        let lhm = match lhm_state.lock() {
+            Ok(guard) => guard.clone(),
+            Err(e) => {
+                warn!("LHM mutex poisoned, using stale data: {}", e);
+                e.into_inner().clone()
+            }
+        };
 
         let data = SensorData {
             // CPU: usage and freq from sysinfo, temp from LHM

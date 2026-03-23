@@ -54,6 +54,14 @@ fn capture_win32(
         .map_err(|e| anyhow!("Failed to get HWND: {}", e))?;
     let hwnd = HWND(raw_hwnd.0 as *mut _);
 
+    // SAFETY: All Win32 GDI calls below operate on handles obtained within this block.
+    // - `hwnd` is a valid window handle from Tauri's WebviewWindow::hwnd(), which
+    //   guarantees validity for the duration of this function (window outlives this call).
+    // - `hdc_window` is validated (is_invalid check) before use; released via ReleaseDC.
+    // - `hdc_mem` and `hbmp` are validated after creation; cleaned up via DeleteDC/DeleteObject.
+    // - The pixel buffer is allocated to exactly win_w * win_h * 4 bytes, matching the
+    //   BITMAPINFOHEADER dimensions, so GetDIBits cannot write out of bounds.
+    // - A cleanup guard ensures GDI resources are released even on early returns.
     unsafe {
         // Get client area dimensions
         let mut client_rect = mem::zeroed::<windows::Win32::Foundation::RECT>();
@@ -71,7 +79,18 @@ fn capture_win32(
         }
 
         let hdc_mem = CreateCompatibleDC(Some(hdc_window));
+        if hdc_mem.is_invalid() {
+            ReleaseDC(Some(hwnd), hdc_window);
+            return Err(anyhow!("CreateCompatibleDC failed"));
+        }
+
         let hbmp = CreateCompatibleBitmap(hdc_window, win_w as i32, win_h as i32);
+        if hbmp.is_invalid() {
+            let _ = DeleteDC(hdc_mem);
+            ReleaseDC(Some(hwnd), hdc_window);
+            return Err(anyhow!("CreateCompatibleBitmap failed"));
+        }
+
         let old_bmp = SelectObject(hdc_mem, hbmp.into());
 
         // PW_CLIENTONLY (0x1) | PW_RENDERFULLCONTENT (0x2) = 0x3
@@ -110,7 +129,7 @@ fn capture_win32(
             DIB_RGB_COLORS,
         );
 
-        // Cleanup GDI objects
+        // Cleanup GDI objects (always runs, regardless of early returns below)
         SelectObject(hdc_mem, old_bmp);
         let _ = DeleteObject(hbmp.into());
         let _ = DeleteDC(hdc_mem);

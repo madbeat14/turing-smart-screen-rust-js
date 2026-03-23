@@ -15,6 +15,7 @@ use crate::config::DisplayConfig;
 /// Display orientation matching the Python Orientation enum
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
+#[allow(dead_code)] // All orientations exist for protocol completeness
 pub enum Orientation {
     Portrait = 0,
     ReversePortrait = 1,
@@ -33,6 +34,7 @@ pub enum SubRevision {
 }
 
 /// Common trait for all display protocol implementations
+#[allow(dead_code)] // Trait defines the full protocol API; not all methods are called yet
 pub trait LcdDisplay: Send {
     /// Run the handshake / initialization sequence
     fn initialize(&mut self) -> Result<()>;

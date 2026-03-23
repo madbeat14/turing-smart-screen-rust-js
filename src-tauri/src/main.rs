@@ -15,6 +15,7 @@ use display::diff::FrameDiffer;
 use display::rgb565::rgba_to_rgb565_le;
 use display::{Orientation, create_display};
 use log::{error, info, warn};
+use serde::Serialize;
 use std::sync::mpsc;
 use tauri::Manager;
 
@@ -147,6 +148,9 @@ fn run_display_loop(
     // Frame differ for optimizing serial traffic
     let mut differ = FrameDiffer::new(screen_w, screen_h, 32);
 
+    // Pre-allocated buffer for extracting dirty rect RGBA regions (avoids per-rect allocation)
+    let mut region_rgba_buf: Vec<u8> = Vec::with_capacity((screen_w as usize) * (screen_h as usize) * 4);
+
     // Get the webview window handle
     let window = app_handle
         .get_webview_window("monitor")
@@ -204,10 +208,9 @@ fn run_display_loop(
 
         // Send only changed regions
         for rect in &dirty_rects {
-            // Extract the RGBA sub-region for this dirty rect
+            // Extract the RGBA sub-region into the reusable buffer
             let stride = (screen_w as usize) * 4;
-            let mut region_rgba =
-                Vec::with_capacity((rect.w as usize) * (rect.h as usize) * 4);
+            region_rgba_buf.clear();
 
             for row in 0..rect.h as usize {
                 let y_offset = (rect.y as usize + row) * stride;
@@ -215,12 +218,12 @@ fn run_display_loop(
                 let start = y_offset + x_offset;
                 let end = start + (rect.w as usize) * 4;
                 if end <= rgba.len() {
-                    region_rgba.extend_from_slice(&rgba[start..end]);
+                    region_rgba_buf.extend_from_slice(&rgba[start..end]);
                 }
             }
 
             if let Err(e) =
-                display.display_rgba_image(&region_rgba, rect.x, rect.y, rect.w, rect.h)
+                display.display_rgba_image(&region_rgba_buf, rect.x, rect.y, rect.w, rect.h)
             {
                 warn!("Display update failed for rect {:?}: {}", rect, e);
             }
@@ -236,10 +239,53 @@ fn run_display_loop(
 
 type SharedConfig = std::sync::Arc<std::sync::Mutex<config::AppConfig>>;
 
+/// Client-safe config that omits sensitive fields like API keys.
+#[derive(Serialize)]
+struct ClientConfig {
+    config: ClientGeneralConfig,
+    display: config::DisplayConfig,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+struct ClientGeneralConfig {
+    com_port: String,
+    theme: String,
+    hw_sensors: String,
+    eth: String,
+    wlo: String,
+    cpu_fan: String,
+    ping: String,
+    weather_api_key_set: bool,
+    weather_latitude: f64,
+    weather_longitude: f64,
+    weather_units: String,
+    weather_language: String,
+}
+
 #[tauri::command]
-fn get_config(config: tauri::State<SharedConfig>) -> Result<config::AppConfig, String> {
-    let cfg = config.lock().map_err(|e| e.to_string())?;
-    Ok(cfg.clone())
+fn get_config(config: tauri::State<SharedConfig>) -> Result<ClientConfig, String> {
+    let cfg = config.lock().map_err(|e| {
+        error!("Config lock failed: {}", e);
+        "Failed to read configuration".to_string()
+    })?;
+    Ok(ClientConfig {
+        config: ClientGeneralConfig {
+            com_port: cfg.config.com_port.clone(),
+            theme: cfg.config.theme.clone(),
+            hw_sensors: cfg.config.hw_sensors.clone(),
+            eth: cfg.config.eth.clone(),
+            wlo: cfg.config.wlo.clone(),
+            cpu_fan: cfg.config.cpu_fan.clone(),
+            ping: cfg.config.ping.clone(),
+            weather_api_key_set: !cfg.config.weather_api_key.is_empty(),
+            weather_latitude: cfg.config.weather_latitude,
+            weather_longitude: cfg.config.weather_longitude,
+            weather_units: cfg.config.weather_units.clone(),
+            weather_language: cfg.config.weather_language.clone(),
+        },
+        display: cfg.display.clone(),
+    })
 }
 
 #[tauri::command]
@@ -247,15 +293,28 @@ fn save_config(
     config: tauri::State<SharedConfig>,
     new_config: config::AppConfig,
 ) -> Result<(), String> {
-    // Save to file
-    let yaml = serde_yaml::to_string(&new_config).map_err(|e| e.to_string())?;
-    std::fs::write("config.yaml", yaml).map_err(|e| e.to_string())?;
+    // Validate before saving
+    new_config.validate()?;
+
+    // Save to file next to the executable (not CWD)
+    let config_path = config::AppConfig::config_path();
+    let yaml = serde_yaml::to_string(&new_config).map_err(|e| {
+        error!("Config serialization failed: {}", e);
+        "Failed to serialize configuration".to_string()
+    })?;
+    std::fs::write(&config_path, &yaml).map_err(|e| {
+        error!("Config write failed to {}: {}", config_path.display(), e);
+        "Failed to write configuration file".to_string()
+    })?;
 
     // Update in-memory config
-    let mut cfg = config.lock().map_err(|e| e.to_string())?;
+    let mut cfg = config.lock().map_err(|e| {
+        error!("Config lock failed: {}", e);
+        "Failed to update configuration".to_string()
+    })?;
     *cfg = new_config;
 
-    info!("Configuration saved");
+    info!("Configuration saved to {}", config_path.display());
     Ok(())
 }
 
@@ -278,8 +337,8 @@ fn get_run_on_startup() -> bool {
 }
 
 #[tauri::command]
-fn set_run_on_startup(enable: bool) {
-    startup::set_run_on_startup(enable);
+fn set_run_on_startup(enable: bool) -> Result<(), String> {
+    startup::set_run_on_startup(enable)
 }
 
 /// Initialize logger that writes to a file next to the executable.
@@ -287,10 +346,7 @@ fn set_run_on_startup(enable: bool) {
 fn init_file_logger() {
     use std::io::Write;
 
-    let log_path = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.join("turing-smart-screen.log")))
-        .unwrap_or_else(|| std::path::PathBuf::from("turing-smart-screen.log"));
+    let log_path = config::AppConfig::config_dir().join("turing-smart-screen.log");
 
     let file = std::fs::OpenOptions::new()
         .create(true)
@@ -306,11 +362,19 @@ fn init_file_logger() {
                 .format(move |_buf, record| {
                     let now = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs();
+                        .unwrap_or_default();
+                    let secs = now.as_secs();
+                    // Format as human-readable UTC: YYYY-MM-DD HH:MM:SS
+                    let days = secs / 86400;
+                    let time_of_day = secs % 86400;
+                    let hours = time_of_day / 3600;
+                    let minutes = (time_of_day % 3600) / 60;
+                    let seconds = time_of_day % 60;
+                    // Simple epoch-to-date (valid 2000-2099)
+                    let (year, month, day) = epoch_days_to_date(days);
                     let msg = format!(
-                        "[{} {} {}] {}\n",
-                        now,
+                        "[{:04}-{:02}-{:02} {:02}:{:02}:{:02} {} {}] {}\n",
+                        year, month, day, hours, minutes, seconds,
                         record.level(),
                         record.target(),
                         record.args()
@@ -330,4 +394,29 @@ fn init_file_logger() {
                 .init();
         }
     }
+}
+
+/// Convert days since Unix epoch to (year, month, day). Simple algorithm, valid 1970-2099.
+fn epoch_days_to_date(days: u64) -> (u64, u64, u64) {
+    let mut y = 1970;
+    let mut remaining = days;
+    loop {
+        let days_in_year = if y % 4 == 0 && (y % 100 != 0 || y % 400 == 0) { 366 } else { 365 };
+        if remaining < days_in_year {
+            break;
+        }
+        remaining -= days_in_year;
+        y += 1;
+    }
+    let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
+    let month_days = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mut m = 0;
+    for md in &month_days {
+        if remaining < *md {
+            break;
+        }
+        remaining -= md;
+        m += 1;
+    }
+    (y, m + 1, remaining + 1)
 }

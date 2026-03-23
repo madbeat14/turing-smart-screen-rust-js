@@ -24,6 +24,7 @@ const CMD_SET_ORIENTATION: u8 = 0x02;
 const CMD_SET_BRIGHTNESS: u8 = 0x03;
 const CMD_FULL: u8 = 0x04;
 const CMD_SET_BITMAP: u8 = 0x05;
+#[allow(dead_code)] // Part of protocol command set
 const CMD_FREE: u8 = 0x07;
 const CMD_END: u8 = 0x0A;
 const CMD_SYSTEM_VERSION_READ: u8 = 0x42 | 0x80; // CMD_SYSTEM_VERSION | CMD_READ
@@ -114,6 +115,7 @@ impl WeActDisplay {
     }
 
     /// Send the "free" command (release display resources)
+    #[allow(dead_code)]
     fn free(&mut self) -> Result<()> {
         self.send_command(&[CMD_FREE, CMD_END])
     }

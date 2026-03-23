@@ -24,8 +24,7 @@ function updateClock() {
   }
 }
 
-function updateUI(data) {
-  // CPU
+function updateCpuMetrics(data) {
   if (data.cpu_usage != null) {
     const el = document.getElementById('cpu-usage');
     const bar = document.getElementById('cpu-bar');
@@ -40,8 +39,9 @@ function updateUI(data) {
     const el = document.getElementById('cpu-freq');
     if (el) el.textContent = data.cpu_freq.toFixed(0) + ' MHz';
   }
+}
 
-  // GPU
+function updateGpuMetrics(data) {
   if (data.gpu_usage != null) {
     const el = document.getElementById('gpu-usage');
     const bar = document.getElementById('gpu-bar');
@@ -56,8 +56,9 @@ function updateUI(data) {
     const el = document.getElementById('gpu-freq');
     if (el) el.textContent = data.gpu_freq.toFixed(0) + ' MHz';
   }
+}
 
-  // Memory
+function updateMemoryMetrics(data) {
   if (data.ram_used != null && data.ram_total != null) {
     const el = document.getElementById('mem-text');
     const bar = document.getElementById('mem-bar');
@@ -67,8 +68,9 @@ function updateUI(data) {
     if (bar) bar.style.width = pct.toFixed(0) + '%';
     if (label) label.textContent = pct.toFixed(0) + '%';
   }
+}
 
-  // Disk
+function updateDiskMetrics(data) {
   if (data.disk_used != null && data.disk_total != null) {
     const el = document.getElementById('disk-text');
     const bar = document.getElementById('disk-bar');
@@ -78,8 +80,9 @@ function updateUI(data) {
     if (bar) bar.style.width = pct.toFixed(0) + '%';
     if (label) label.textContent = pct.toFixed(0) + '%';
   }
+}
 
-  // Network
+function updateNetworkMetrics(data) {
   if (data.net_upload != null) {
     const el = document.getElementById('net-up');
     if (el) el.textContent = '\u2191 ' + formatRate(data.net_upload);
@@ -90,16 +93,25 @@ function updateUI(data) {
   }
 }
 
-// Wait for Tauri API to be ready, then start listening
-function initTauriListener() {
+function updateUI(data) {
+  updateCpuMetrics(data);
+  updateGpuMetrics(data);
+  updateMemoryMetrics(data);
+  updateDiskMetrics(data);
+  updateNetworkMetrics(data);
+}
+
+// Wait for Tauri API to be ready, then start listening (max 5s)
+function initTauriListener(attempt) {
+  if (attempt === undefined) attempt = 0;
+  var MAX_ATTEMPTS = 50; // 50 * 100ms = 5 seconds
+
   if (window.__TAURI__ && window.__TAURI__.event) {
-    window.__TAURI__.event.listen('sensor-update', (event) => {
+    window.__TAURI__.event.listen('sensor-update', function(event) {
       updateUI(event.payload);
     });
-    console.log('Tauri sensor listener registered');
-  } else {
-    // Retry until Tauri API is available
-    setTimeout(initTauriListener, 100);
+  } else if (attempt < MAX_ATTEMPTS) {
+    setTimeout(function() { initTauriListener(attempt + 1); }, 100);
   }
 }
 

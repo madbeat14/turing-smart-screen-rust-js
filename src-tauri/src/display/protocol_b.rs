@@ -19,6 +19,7 @@ use super::{LcdDisplay, Orientation};
 /// Rev B command set
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
+#[allow(dead_code)] // Full command set for protocol completeness
 enum Command {
     Hello = 0xCA,
     SetOrientation = 0xCB,
@@ -124,6 +125,7 @@ impl RevBDisplay {
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn is_flagship(&self) -> bool {
         matches!(
             self.sub_revision,
@@ -139,6 +141,7 @@ impl RevBDisplay {
     }
 
     /// Set backplate RGB LED color (flagship only)
+    #[allow(dead_code)]
     pub fn set_led_color(&mut self, r: u8, g: u8, b: u8) -> Result<()> {
         if self.is_flagship() {
             self.send_command(Command::SetLighting, &[r, g, b])

@@ -149,6 +149,10 @@ impl LcdDisplay for RevDDisplay {
         let actual_w = w.min(display_w.saturating_sub(x));
         let actual_h = h.min(display_h.saturating_sub(y));
 
+        if actual_w == 0 || actual_h == 0 {
+            return Ok(());
+        }
+
         // For landscape orientations, rotate image 270° and recalculate coordinates
         let (rgba_data, x0, y0, x1, y1, _img_w) = match self.orientation {
             Orientation::Portrait | Orientation::ReversePortrait => {

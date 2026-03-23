@@ -12,7 +12,6 @@ serde_yaml = "0.9"
 serialport = "4"
 sysinfo = "0.33"
 image = "0.25"
-tokio = { version = "1", features = ["full"] }
 anyhow = "1"
 log = "0.4"
 env_logger = "0.11"

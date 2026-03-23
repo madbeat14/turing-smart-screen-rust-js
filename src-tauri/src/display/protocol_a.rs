@@ -12,10 +12,10 @@ use super::{LcdDisplay, Orientation, SubRevision, dimensions_for_sub_revision};
 /// Rev A command set
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
+#[allow(dead_code)] // Full command set for protocol completeness
 enum Command {
     Reset = 101,
     Clear = 102,
-    #[allow(dead_code)]
     ToBlack = 103,
     ScreenOff = 108,
     ScreenOn = 109,
@@ -194,9 +194,13 @@ impl LcdDisplay for RevADisplay {
         let display_w = self.get_width();
         let display_h = self.get_height();
 
-        // Clamp image to display bounds
-        let actual_w = w.min(display_w - x);
-        let actual_h = h.min(display_h - y);
+        // Clamp image to display bounds (saturating_sub prevents u16 underflow)
+        let actual_w = w.min(display_w.saturating_sub(x));
+        let actual_h = h.min(display_h.saturating_sub(y));
+
+        if actual_w == 0 || actual_h == 0 {
+            return Ok(());
+        }
 
         // Crop RGBA data if needed
         let rgba_data = if actual_w != w || actual_h != h {

@@ -78,6 +78,7 @@ impl SerialConnection {
     }
 
     /// List all available serial ports (for settings UI)
+    #[allow(dead_code)]
     pub fn list_ports() -> Result<Vec<SerialPortInfo>> {
         serialport::available_ports().context("Failed to list serial ports")
     }
@@ -130,6 +131,7 @@ impl SerialConnection {
     }
 
     /// Write data in chunks, yielding between chunks
+    #[allow(dead_code)]
     pub fn write_chunked(&mut self, data: &[u8], chunk_size: usize) -> Result<()> {
         for chunk in data.chunks(chunk_size) {
             self.write_data(chunk)?;
@@ -157,6 +159,7 @@ impl SerialConnection {
     }
 
     /// Get the port name
+    #[allow(dead_code)]
     pub fn port_name(&self) -> &str {
         &self.port_name
     }
