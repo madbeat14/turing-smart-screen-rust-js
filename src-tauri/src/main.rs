@@ -128,8 +128,19 @@ fn run_display_loop(
         if let Err(e) = display.reset() {
             warn!("Display reset failed: {}", e);
         }
-        // Re-initialize after reset
-        display.initialize()?;
+        // Reset causes USB re-enumeration — the old serial handle goes stale.
+        // Keep retrying initialize() until the port comes back and handshake succeeds.
+        loop {
+            match display.initialize() {
+                Ok(()) => break,
+                Err(e) => {
+                    info!("Post-reset initialize pending ({}), retrying...", e);
+                    std::thread::sleep(std::time::Duration::from_secs(2));
+                }
+            }
+        }
+        // Clear the reconnected flag — this was an expected reset, not a cable unplug
+        display.take_reconnected();
     }
 
     // Set brightness and orientation
@@ -157,6 +168,9 @@ fn run_display_loop(
         .get_webview_window("monitor")
         .ok_or_else(|| anyhow::anyhow!("Monitor window not found"))?;
 
+    // Track iterations for periodic health check (every ~5 seconds)
+    let mut health_check_counter: u32 = 0;
+
     loop {
         // Check for restart signal (settings changed or tray "Reset Monitor")
         if restart_rx.try_recv().is_ok() {
@@ -179,6 +193,44 @@ fn run_display_loop(
             }
             // Force full frame redraw
             differ.reset();
+        }
+
+        // Check if a reconnection happened (write-error path sets this flag).
+        // Also periodically poll the OS port list to catch silent disconnects
+        // where writes don't fail (Windows can buffer serial writes).
+        let needs_reinit = if display.take_reconnected() {
+            info!("Write-error reconnection detected");
+            true
+        } else {
+            health_check_counter += 1;
+            if health_check_counter >= 10 {
+                health_check_counter = 0;
+                if display.check_port_health() {
+                    info!("USB cable reconnection detected via port health check");
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        };
+
+        if needs_reinit {
+            // Mirror what "Reset Monitor" does — just re-apply brightness and
+            // orientation. No initialize() call — that would send a HELLO handshake
+            // which isn't needed and can interfere with the display state.
+            info!("Re-applying display settings after reconnection");
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            if let Err(e) = display.set_brightness(config.brightness) {
+                warn!("Failed to restore brightness: {}", e);
+            }
+            if let Err(e) = display.set_orientation(orientation) {
+                warn!("Failed to restore orientation: {}", e);
+            }
+            differ.reset();
+            info!("Display settings restored after reconnection");
+            continue;
         }
 
         // Capture webview screenshot
@@ -227,6 +279,7 @@ fn run_display_loop(
                 display.display_rgba_image(&region_rgba_buf, rect.x, rect.y, rect.w, rect.h)
             {
                 warn!("Display update failed for rect {:?}: {}", rect, e);
+                break;
             }
         }
 

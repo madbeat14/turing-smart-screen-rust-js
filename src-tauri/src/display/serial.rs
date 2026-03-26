@@ -8,6 +8,10 @@ use std::time::Duration;
 pub struct SerialConnection {
     port: Box<dyn SerialPort>,
     port_name: String,
+    /// Set to true after a successful reconnect so callers can re-initialize the display
+    reconnected: bool,
+    /// Tracks whether the port was present in the last health check
+    was_present: bool,
 }
 
 impl SerialConnection {
@@ -28,6 +32,8 @@ impl SerialConnection {
         Ok(Self {
             port,
             port_name: port_name.to_string(),
+            reconnected: false,
+            was_present: true,
         })
     }
 
@@ -83,7 +89,53 @@ impl SerialConnection {
         serialport::available_ports().context("Failed to list serial ports")
     }
 
-    /// Write data to the serial port with error recovery
+    /// Check if the COM port is currently present in the system.
+    /// Detects USB cable disconnect/reconnect by polling the OS port list.
+    /// Returns true if the port disappeared and came back (needs re-init).
+    pub fn check_port_health(&mut self) -> bool {
+        let is_present = serialport::available_ports()
+            .map(|ports| ports.iter().any(|p| p.port_name == self.port_name))
+            .unwrap_or(false);
+
+        if !is_present && self.was_present {
+            warn!("Serial port {} disappeared — USB cable likely disconnected", self.port_name);
+            self.was_present = false;
+        } else if is_present && !self.was_present {
+            info!("Serial port {} reappeared — USB cable reconnected", self.port_name);
+            self.was_present = true;
+            // Reopen with a fresh handle since the old one is stale
+            match Self::open_port(&self.port_name) {
+                Ok(new_port) => {
+                    self.port = new_port;
+                    self.reconnected = true;
+                    return true;
+                }
+                Err(e) => {
+                    warn!("Failed to reopen {} after reconnect: {}", self.port_name, e);
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Open a raw serial port handle (helper for reconnection)
+    fn open_port(port_name: &str) -> Result<Box<dyn SerialPort>> {
+        serialport::new(port_name, 115200)
+            .timeout(Duration::from_secs(1))
+            .flow_control(serialport::FlowControl::Hardware)
+            .stop_bits(serialport::StopBits::One)
+            .parity(serialport::Parity::None)
+            .data_bits(serialport::DataBits::Eight)
+            .open()
+            .with_context(|| format!("Failed to open serial port {}", port_name))
+    }
+
+    /// Write data to the serial port with error recovery.
+    /// On failure, waits for the port to reconnect but does NOT retry the write.
+    /// This prevents sending stale image data to a power-cycled display whose
+    /// protocol parser would misinterpret raw pixel bytes as commands.
+    /// The `reconnected` flag is set so the caller can re-initialize.
     pub fn write_data(&mut self, data: &[u8]) -> Result<()> {
         match self.port.write_all(data) {
             Ok(()) => Ok(()),
@@ -92,10 +144,10 @@ impl SerialConnection {
                     "Serial write failed on {}: {}. Attempting reconnect...",
                     self.port_name, e
                 );
-                self.reconnect()?;
-                self.port
-                    .write_all(data)
-                    .context("Serial write failed after reconnect")
+                self.reconnect_with_retry()?;
+                Err(anyhow!(
+                    "Serial port reconnected — caller should re-initialize before sending data"
+                ))
             }
         }
     }
@@ -114,11 +166,10 @@ impl SerialConnection {
                     "Serial read failed on {}: {}. Attempting reconnect...",
                     self.port_name, e
                 );
-                self.reconnect()?;
-                self.port
-                    .read_exact(&mut buf)
-                    .context("Serial read failed after reconnect")?;
-                Ok(buf)
+                self.reconnect_with_retry()?;
+                Err(anyhow!(
+                    "Serial port reconnected — caller should re-initialize before sending data"
+                ))
             }
         }
     }
@@ -139,23 +190,38 @@ impl SerialConnection {
         Ok(())
     }
 
-    /// Close and reopen the serial port (error recovery)
-    fn reconnect(&mut self) -> Result<()> {
-        warn!("Reconnecting to serial port {}...", self.port_name);
-        std::thread::sleep(Duration::from_secs(1));
+    /// Keep trying to reopen the serial port until successful.
+    /// This handles USB cable disconnections — the port won't be available until
+    /// the cable is plugged back in, so we retry every 2 seconds.
+    fn reconnect_with_retry(&mut self) -> Result<()> {
+        warn!("Attempting to reconnect to serial port {}...", self.port_name);
+        loop {
+            std::thread::sleep(Duration::from_secs(2));
 
-        let new_port = serialport::new(&self.port_name, 115200)
-            .timeout(Duration::from_secs(1))
-            .flow_control(serialport::FlowControl::Hardware)
-            .stop_bits(serialport::StopBits::One)
-            .parity(serialport::Parity::None)
-            .data_bits(serialport::DataBits::Eight)
-            .open()
-            .with_context(|| format!("Failed to reconnect to {}", self.port_name))?;
+            match Self::open_port(&self.port_name) {
+                Ok(new_port) => {
+                    self.port = new_port;
+                    self.reconnected = true;
+                    self.was_present = true;
+                    info!("Reconnected to serial port {}", self.port_name);
+                    return Ok(());
+                }
+                Err(e) => {
+                    debug!(
+                        "Reconnect attempt to {} failed: {}. Retrying in 2s...",
+                        self.port_name, e
+                    );
+                }
+            }
+        }
+    }
 
-        self.port = new_port;
-        info!("Reconnected to serial port {}", self.port_name);
-        Ok(())
+    /// Check if the serial connection was recently reconnected (e.g. after cable unplug/replug).
+    /// Returns true once after each reconnection, then resets the flag.
+    pub fn take_reconnected(&mut self) -> bool {
+        let was = self.reconnected;
+        self.reconnected = false;
+        was
     }
 
     /// Get the port name

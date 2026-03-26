@@ -289,6 +289,14 @@ impl LcdDisplay for RevBDisplay {
             Orientation::Landscape | Orientation::ReverseLandscape => self.display_width,
         }
     }
+
+    fn take_reconnected(&mut self) -> bool {
+        self.serial.take_reconnected()
+    }
+
+    fn check_port_health(&mut self) -> bool {
+        self.serial.check_port_health()
+    }
 }
 
 #[cfg(test)]

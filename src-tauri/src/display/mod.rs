@@ -73,6 +73,15 @@ pub trait LcdDisplay: Send {
 
     /// Get current display height (accounting for orientation)
     fn get_height(&self) -> u16;
+
+    /// Check if the underlying connection was recently reconnected (e.g. USB cable replug).
+    /// Returns true once per reconnection event, then resets.
+    fn take_reconnected(&mut self) -> bool;
+
+    /// Actively check whether the USB port is still present in the system.
+    /// Returns true if the port disappeared and came back (cable unplug/replug detected).
+    /// The caller should re-initialize the display when this returns true.
+    fn check_port_health(&mut self) -> bool;
 }
 
 /// Display dimensions for known hardware
