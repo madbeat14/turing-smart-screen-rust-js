@@ -54,7 +54,7 @@ pub struct DisplayConfig {
 }
 
 fn default_auto() -> String { "AUTO".to_string() }
-fn default_theme() -> String { "default".to_string() }
+fn default_theme() -> String { "v2".to_string() }
 fn default_ping() -> String { "8.8.8.8".to_string() }
 fn default_latitude() -> f64 { 0.0 }
 fn default_longitude() -> f64 { 0.0 }

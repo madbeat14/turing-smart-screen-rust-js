@@ -1,0 +1,92 @@
+:root {
+  --bg: #0d1117;
+  --card-bg: rgba(255, 255, 255, 0.05);
+  --card-border: rgba(255, 255, 255, 0.1);
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --accent: #58a6ff;
+  --success: #3fb950;
+  --warning: #d29922;
+  --danger: #f85149;
+  --font: 'Segoe UI', 'Inter', sans-serif;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  width: 480px;
+  height: 320px;
+  background: var(--bg);
+  font-family: var(--font);
+  color: var(--text-primary);
+  overflow: hidden;
+  user-select: none;
+}
+
+.monitor {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 6px;
+  padding: 6px;
+  width: 100%;
+  height: 100%;
+}
+
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.card-header {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 4px;
+}
+
+.card-value {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.card-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.card-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  text-align: right;
+}
+
+.progress-container {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  margin-top: 6px;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--success), var(--danger));
+  transition: width 0.3s ease;
+}

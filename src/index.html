@@ -3,63 +3,240 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=480, height=320, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src ipc: https://ipc.localhost" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: https://ipc.localhost" />
   <title>Turing Smart Screen</title>
-  <link rel="stylesheet" href="style.css" />
+  <link id="template-css" rel="stylesheet" href="templates/v2/style.css" />
+  <style>
+    body { margin: 0; background: #0c0c10; width: 480px; height: 320px; overflow: hidden; }
+    .template { display: none; }
+    .template.active { display: block; width: 100%; height: 100%; }
+  </style>
 </head>
 <body>
-  <div class="monitor">
-    <div class="card" id="cpu-card">
-      <div class="card-header">CPU</div>
-      <div class="card-value" id="cpu-temp">--&deg;C</div>
-      <div class="card-sub" id="cpu-freq">-- MHz</div>
-      <div class="progress-container">
-        <div class="progress-bar" id="cpu-bar" style="width: 0%"></div>
+
+  <!-- ── Template v1: Simple ──────────────────────────────── -->
+  <div class="template" id="tpl-v1">
+    <div class="monitor">
+      <div class="card" id="cpu-card">
+        <div class="card-header">CPU</div>
+        <div class="card-value" id="v1-cpu-temp">--&deg;C</div>
+        <div class="card-sub" id="v1-cpu-freq">-- MHz</div>
+        <div class="progress-container">
+          <div class="progress-bar" id="v1-cpu-bar" style="width: 0%"></div>
+        </div>
+        <div class="card-label" id="v1-cpu-usage">0%</div>
       </div>
-      <div class="card-label" id="cpu-usage">0%</div>
-    </div>
 
-    <div class="card" id="gpu-card">
-      <div class="card-header">GPU</div>
-      <div class="card-value" id="gpu-temp">--&deg;C</div>
-      <div class="card-sub" id="gpu-freq">-- MHz</div>
-      <div class="progress-container">
-        <div class="progress-bar" id="gpu-bar" style="width: 0%"></div>
+      <div class="card" id="gpu-card">
+        <div class="card-header">GPU</div>
+        <div class="card-value" id="v1-gpu-temp">--&deg;C</div>
+        <div class="card-sub" id="v1-gpu-freq">-- MHz</div>
+        <div class="progress-container">
+          <div class="progress-bar" id="v1-gpu-bar" style="width: 0%"></div>
+        </div>
+        <div class="card-label" id="v1-gpu-usage">0%</div>
       </div>
-      <div class="card-label" id="gpu-usage">0%</div>
-    </div>
 
-    <div class="card" id="mem-card">
-      <div class="card-header">MEMORY</div>
-      <div class="card-value" id="mem-text">-- / -- GB</div>
-      <div class="progress-container">
-        <div class="progress-bar" id="mem-bar" style="width: 0%"></div>
+      <div class="card" id="mem-card">
+        <div class="card-header">MEMORY</div>
+        <div class="card-value" id="v1-mem-text">-- / -- GB</div>
+        <div class="progress-container">
+          <div class="progress-bar" id="v1-mem-bar" style="width: 0%"></div>
+        </div>
+        <div class="card-label" id="v1-mem-usage">0%</div>
       </div>
-      <div class="card-label" id="mem-usage">0%</div>
-    </div>
 
-    <div class="card" id="disk-card">
-      <div class="card-header">DISK</div>
-      <div class="card-value" id="disk-text">-- / -- GB</div>
-      <div class="progress-container">
-        <div class="progress-bar" id="disk-bar" style="width: 0%"></div>
+      <div class="card" id="disk-card">
+        <div class="card-header">DISK</div>
+        <div class="card-value" id="v1-disk-text">-- / -- GB</div>
+        <div class="progress-container">
+          <div class="progress-bar" id="v1-disk-bar" style="width: 0%"></div>
+        </div>
+        <div class="card-label" id="v1-disk-usage">0%</div>
       </div>
-      <div class="card-label" id="disk-usage">0%</div>
-    </div>
 
-    <div class="card" id="net-card">
-      <div class="card-header">NETWORK</div>
-      <div class="card-value" id="net-up">&uarr; -- KB/s</div>
-      <div class="card-sub" id="net-down">&darr; -- KB/s</div>
-    </div>
+      <div class="card" id="net-card">
+        <div class="card-header">NETWORK</div>
+        <div class="card-value" id="v1-net-up">&uarr; -- KB/s</div>
+        <div class="card-sub" id="v1-net-down">&darr; -- KB/s</div>
+      </div>
 
-    <div class="card" id="clock-card">
-      <div class="card-header">TIME</div>
-      <div class="card-value" id="clock-time">--:--</div>
-      <div class="card-sub" id="clock-date">----</div>
+      <div class="card" id="clock-card">
+        <div class="card-header">TIME</div>
+        <div class="card-value" id="v1-clock-time">--:--</div>
+        <div class="card-sub" id="v1-clock-date">----</div>
+      </div>
     </div>
   </div>
 
-  <script src="app.js"></script>
+  <!-- ── Template v2: Sparklines & State Colors ───────────── -->
+  <div class="template" id="tpl-v2">
+    <div class="monitor">
+
+      <div class="card state-normal" id="v2-cpu-card">
+        <div class="card-header">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>
+          CPU
+        </div>
+        <div class="metrics-row">
+          <div class="metric-primary" id="v2-cpu-temp">
+            <span class="value">--</span><span class="unit">&deg;C</span>
+          </div>
+          <div class="metric-secondary">
+            <span class="value" id="v2-cpu-freq">--</span><span class="unit">MHz</span>
+            <span class="sep">|</span>
+            <span class="value" id="v2-cpu-usage-text">--</span><span class="unit">%</span>
+          </div>
+        </div>
+        <div class="progress-row">
+          <div class="progress-track"><div class="progress-fill" id="v2-cpu-bar"></div></div>
+          <div class="progress-label" id="v2-cpu-usage-label">0%</div>
+        </div>
+        <div class="sparkline-container"><canvas id="cpu-spark"></canvas></div>
+      </div>
+
+      <div class="card state-normal" id="v2-gpu-card">
+        <div class="card-header">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M6 7V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v2"/><line x1="6" y1="12" x2="6" y2="12"/><line x1="10" y1="12" x2="10" y2="12"/><line x1="14" y1="12" x2="14" y2="12"/><line x1="18" y1="12" x2="18" y2="12"/></svg>
+          GPU
+        </div>
+        <div class="metrics-row">
+          <div class="metric-primary" id="v2-gpu-temp">
+            <span class="value">--</span><span class="unit">&deg;C</span>
+          </div>
+          <div class="metric-secondary">
+            <span class="value" id="v2-gpu-freq">--</span><span class="unit">MHz</span>
+            <span class="sep">|</span>
+            <span class="value" id="v2-gpu-usage-text">--</span><span class="unit">%</span>
+          </div>
+        </div>
+        <div class="progress-row">
+          <div class="progress-track"><div class="progress-fill" id="v2-gpu-bar"></div></div>
+          <div class="progress-label" id="v2-gpu-usage-label">0%</div>
+        </div>
+        <div class="sparkline-container"><canvas id="gpu-spark"></canvas></div>
+      </div>
+
+      <div class="card state-normal" id="v2-mem-card">
+        <div class="card-header">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><line x1="6" y1="10" x2="6" y2="14"/><line x1="10" y1="10" x2="10" y2="14"/><line x1="14" y1="10" x2="14" y2="14"/><line x1="18" y1="10" x2="18" y2="14"/></svg>
+          MEMORY
+        </div>
+        <div class="metrics-row">
+          <div class="metric-primary" id="v2-mem-pct">
+            <span class="value">--</span><span class="unit">%</span>
+          </div>
+          <div class="metric-secondary" id="v2-mem-text">
+            <span class="value">--</span><span class="unit"> / </span><span class="value">--</span><span class="unit">GB</span>
+          </div>
+        </div>
+        <div class="progress-row">
+          <div class="progress-track"><div class="progress-fill" id="v2-mem-bar"></div></div>
+          <div class="progress-label" id="v2-mem-usage-label">0%</div>
+        </div>
+        <div class="sparkline-container"><canvas id="mem-spark"></canvas></div>
+      </div>
+
+      <div class="card state-normal" id="v2-disk-card">
+        <div class="card-header">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+          DISK
+        </div>
+        <div class="metrics-row">
+          <div class="metric-primary" id="v2-disk-pct">
+            <span class="value">--</span><span class="unit">%</span>
+          </div>
+          <div class="metric-secondary" id="v2-disk-text">
+            <span class="value">--</span><span class="unit"> / </span><span class="value">--</span><span class="unit">GB</span>
+          </div>
+        </div>
+        <div class="progress-row">
+          <div class="progress-track"><div class="progress-fill" id="v2-disk-bar"></div></div>
+          <div class="progress-label" id="v2-disk-usage-label">0%</div>
+        </div>
+        <div class="sparkline-container"><canvas id="disk-spark"></canvas></div>
+      </div>
+
+      <div class="card" id="v2-net-card">
+        <div class="card-header">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+          NETWORK
+        </div>
+        <div class="net-metrics">
+          <div class="net-metric" id="v2-net-up">
+            <span class="arrow up">&uarr;</span>
+            <span class="value">--</span>
+            <span class="unit">KB/s</span>
+          </div>
+          <div class="net-metric" id="v2-net-down">
+            <span class="arrow down">&darr;</span>
+            <span class="value">--</span>
+            <span class="unit">KB/s</span>
+          </div>
+        </div>
+        <div class="sparkline-container"><canvas id="net-spark"></canvas></div>
+      </div>
+
+      <div class="card" id="v2-clock-card">
+        <div class="card-header">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          TIME
+        </div>
+        <div class="clock-time" id="v2-clock-time">--:--:--</div>
+        <div class="clock-date" id="v2-clock-date">---</div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    // Template bootstrapper — activates v1 or v2 based on THEME config
+    var DEFAULT_TEMPLATE = 'v2';
+
+    function activateTemplate(templateId) {
+      if (templateId !== 'v1' && templateId !== 'v2') {
+        templateId = DEFAULT_TEMPLATE;
+      }
+
+      // Swap CSS
+      var cssLink = document.getElementById('template-css');
+      cssLink.href = 'templates/' + templateId + '/style.css';
+
+      // Show the right template, hide the other
+      var all = document.querySelectorAll('.template');
+      for (var i = 0; i < all.length; i++) {
+        all[i].classList.remove('active');
+      }
+      var tpl = document.getElementById('tpl-' + templateId);
+      if (tpl) tpl.classList.add('active');
+
+      // Load the template's JS
+      var existing = document.getElementById('template-js');
+      if (existing) existing.remove();
+      var script = document.createElement('script');
+      script.id = 'template-js';
+      script.src = 'templates/' + templateId + '/app.js';
+      document.body.appendChild(script);
+    }
+
+    function initTemplate(attempt) {
+      if (attempt === undefined) attempt = 0;
+
+      if (window.__TAURI__ && window.__TAURI__.core) {
+        window.__TAURI__.core.invoke('get_config').then(function(cfg) {
+          var theme = cfg.config.THEME || DEFAULT_TEMPLATE;
+          activateTemplate(theme);
+        }).catch(function() {
+          activateTemplate(DEFAULT_TEMPLATE);
+        });
+      } else if (attempt < 50) {
+        setTimeout(function() { initTemplate(attempt + 1); }, 100);
+      } else {
+        activateTemplate(DEFAULT_TEMPLATE);
+      }
+    }
+
+    initTemplate();
+  </script>
 </body>
 </html>

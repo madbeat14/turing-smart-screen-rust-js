@@ -43,6 +43,7 @@ fn main() {
             save_config,
             list_serial_ports,
             restart_display,
+            reload_monitor,
             get_run_on_startup,
             set_run_on_startup,
         ])
@@ -376,6 +377,15 @@ fn save_config(
 fn restart_display(sender: tauri::State<RestartSender>) -> Result<(), String> {
     sender.0.send(()).map_err(|e| e.to_string())?;
     info!("Display restart signal sent");
+    Ok(())
+}
+
+#[tauri::command]
+fn reload_monitor(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("monitor") {
+        win.eval("window.location.reload();").map_err(|e| e.to_string())?;
+        info!("Monitor webview reloaded");
+    }
     Ok(())
 }
 
