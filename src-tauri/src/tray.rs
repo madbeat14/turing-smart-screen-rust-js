@@ -29,8 +29,9 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
         None::<&str>,
     )?;
     let configure = MenuItem::with_id(app, "configure", "Configure", true, None::<&str>)?;
+    let template_editor = MenuItem::with_id(app, "template_editor", "Template Editor", true, None::<&str>)?;
     let exit = MenuItem::with_id(app, "exit", "Exit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show_monitor, &hide_monitor, &reset_monitor, &boot_item, &configure, &exit])?;
+    let menu = Menu::with_items(app, &[&show_monitor, &hide_monitor, &reset_monitor, &boot_item, &configure, &template_editor, &exit])?;
 
     let icon = load_tray_icon();
 
@@ -62,6 +63,10 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
                 "configure" => {
                     info!("Opening settings window");
                     open_settings_window(app);
+                }
+                "template_editor" => {
+                    info!("Opening template editor");
+                    open_editor_window(app);
                 }
                 "exit" => {
                     info!("Exiting from tray");
@@ -119,6 +124,29 @@ fn load_tray_icon() -> tauri::image::Image<'static> {
             }
             tauri::image::Image::new_owned(pixels, size, size)
         }
+    }
+}
+
+pub fn open_editor_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("editor") {
+        let _ = window.set_focus();
+        return;
+    }
+
+    let builder = tauri::WebviewWindowBuilder::new(
+        app,
+        "editor",
+        tauri::WebviewUrl::App("editor.html".into()),
+    )
+    .title("Template Editor — Turing Smart Screen")
+    .inner_size(1100.0, 750.0)
+    .min_inner_size(900.0, 600.0)
+    .resizable(true)
+    .center();
+
+    match builder.build() {
+        Ok(_) => info!("Template editor window opened"),
+        Err(e) => log::error!("Failed to open template editor: {}", e),
     }
 }
 

@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src ipc: https://ipc.localhost; frame-src blob:" />
+  <title>Template Editor — Turing Smart Screen</title>
+  <link rel="stylesheet" href="editor/editor-style.css" />
+</head>
+<body>
+
+  <!-- ── Toolbar ──────────────────────────────────────────── -->
+  <div class="toolbar">
+    <div class="toolbar-group">
+      <button id="btn-new" class="btn btn-secondary">New</button>
+      <button id="btn-save" class="btn btn-primary">Save</button>
+      <button id="btn-preview" class="btn btn-success">Preview</button>
+    </div>
+    <div class="toolbar-sep"></div>
+    <div class="toolbar-group">
+      <label for="template-name">Name:</label>
+      <input type="text" id="template-name" value="my-template" />
+    </div>
+    <div class="toolbar-group">
+      <label for="display-name">Label:</label>
+      <input type="text" id="display-name" value="My Template" />
+    </div>
+    <div class="toolbar-group">
+      <label for="bg-color">BG:</label>
+      <input type="color" id="bg-color" value="#0c0c10" />
+    </div>
+    <div class="toolbar-sep"></div>
+    <div class="toolbar-group">
+      <button id="btn-import" class="btn btn-secondary">Import</button>
+      <button id="btn-export" class="btn btn-secondary">Export</button>
+    </div>
+  </div>
+
+  <!-- ── Main Area ────────────────────────────────────────── -->
+  <div class="editor-main">
+
+    <!-- Left Panel: Widget Palette + Template List -->
+    <div class="left-panel">
+      <div class="panel-header">Widgets</div>
+
+      <div class="palette-item" data-type="metric-card">
+        <div class="pi-icon" style="background:rgba(34,197,94,0.15);color:#22c55e;">M</div>
+        <div class="pi-info">
+          <div class="pi-name">Metric Card</div>
+          <div class="pi-desc">Header, value, bar, chart</div>
+        </div>
+      </div>
+
+      <div class="palette-item" data-type="value-display">
+        <div class="pi-icon" style="background:rgba(59,130,246,0.15);color:#3b82f6;">V</div>
+        <div class="pi-info">
+          <div class="pi-name">Value Display</div>
+          <div class="pi-desc">Large value + unit</div>
+        </div>
+      </div>
+
+      <div class="palette-item" data-type="progress-bar">
+        <div class="pi-icon" style="background:rgba(245,158,11,0.15);color:#f59e0b;">P</div>
+        <div class="pi-info">
+          <div class="pi-name">Progress Bar</div>
+          <div class="pi-desc">Horizontal bar</div>
+        </div>
+      </div>
+
+      <div class="palette-item" data-type="sparkline">
+        <div class="pi-icon" style="background:rgba(168,85,247,0.15);color:#a855f7;">S</div>
+        <div class="pi-info">
+          <div class="pi-name">Sparkline Chart</div>
+          <div class="pi-desc">Time-series chart</div>
+        </div>
+      </div>
+
+      <div class="palette-item" data-type="clock">
+        <div class="pi-icon" style="background:rgba(236,72,153,0.15);color:#ec4899;">C</div>
+        <div class="pi-info">
+          <div class="pi-name">Clock</div>
+          <div class="pi-desc">Time & date</div>
+        </div>
+      </div>
+
+      <div class="palette-item" data-type="network-pair">
+        <div class="pi-icon" style="background:rgba(59,130,246,0.15);color:#3b82f6;">N</div>
+        <div class="pi-info">
+          <div class="pi-name">Network</div>
+          <div class="pi-desc">Upload + download</div>
+        </div>
+      </div>
+
+      <div class="palette-item" data-type="label">
+        <div class="pi-icon" style="background:rgba(255,255,255,0.08);color:#e0e0e0;">T</div>
+        <div class="pi-info">
+          <div class="pi-name">Text Label</div>
+          <div class="pi-desc">Static text</div>
+        </div>
+      </div>
+
+      <div class="palette-item" data-type="divider">
+        <div class="pi-icon" style="background:rgba(255,255,255,0.05);color:#6b7280;">D</div>
+        <div class="pi-info">
+          <div class="pi-name">Divider</div>
+          <div class="pi-desc">Line separator</div>
+        </div>
+      </div>
+
+      <div class="panel-header">Templates</div>
+      <div class="template-list" id="template-list">
+        <!-- Populated dynamically -->
+      </div>
+    </div>
+
+    <!-- Center: Canvas -->
+    <div class="center-panel">
+      <div id="canvas-container">
+        <div class="canvas-area"></div>
+      </div>
+      <iframe id="preview-frame" sandbox="allow-scripts"></iframe>
+    </div>
+
+    <!-- Right Panel: Properties -->
+    <div class="right-panel" id="props-panel">
+      <div class="panel-empty">Select a widget to edit its properties</div>
+    </div>
+
+  </div>
+
+  <!-- ── Status Bar ───────────────────────────────────────── -->
+  <div class="editor-status" id="editor-status"></div>
+
+  <!-- ── Scripts ──────────────────────────────────────────── -->
+  <script src="editor/widget-registry.js"></script>
+  <script src="editor/manifest.js"></script>
+  <script src="editor/template-compiler.js"></script>
+  <script src="editor/canvas.js"></script>
+  <script src="editor/properties-panel.js"></script>
+  <script src="editor/editor-app.js"></script>
+
+</body>
+</html>

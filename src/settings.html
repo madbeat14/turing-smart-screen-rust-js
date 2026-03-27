@@ -114,6 +114,17 @@
     }
     .status.success { color: #4caf50; }
     .status.error { color: #f44336; }
+    .btn-editor {
+      padding: 8px 12px;
+      background: #333;
+      color: #e0e0e0;
+      border: 1px solid #444;
+      border-radius: 4px;
+      font-size: 13px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .btn-editor:hover { background: #444; }
   </style>
 </head>
 <body>
@@ -171,10 +182,13 @@
 
   <div class="form-group">
     <label for="theme">Template</label>
-    <select id="theme">
-      <option value="v1">v1 — Simple</option>
-      <option value="v2">v2 — Sparklines &amp; State Colors</option>
-    </select>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <select id="theme" style="flex:1;">
+        <option value="v1">v1 — Simple</option>
+        <option value="v2">v2 — Sparklines &amp; State Colors</option>
+      </select>
+      <button class="btn-editor" id="btn-editor" title="Open Template Editor">Edit</button>
+    </div>
   </div>
 
   <div class="actions">
@@ -260,6 +274,21 @@
           $comPort.appendChild(opt);
         }
 
+        // Populate template dropdown dynamically
+        try {
+          const templates = await invoke('list_templates');
+          $theme.innerHTML = '';
+          for (const t of templates) {
+            const opt = document.createElement('option');
+            opt.value = t.name;
+            opt.textContent = t.display_name + (t.is_builtin ? ' (built-in)' : '');
+            $theme.appendChild(opt);
+          }
+        } catch (e) {
+          // Fallback to hardcoded list if list_templates is not available
+          console.warn('Could not load template list:', e);
+        }
+
         // Load current config
         const cfg = await invoke('get_config');
         $comPort.value = cfg.config.COM_PORT || 'AUTO';
@@ -268,11 +297,20 @@
         $brightnessValue.textContent = $brightness.value + '%';
         $displayReverse.checked = cfg.display.DISPLAY_REVERSE || false;
         $resetOnStartup.checked = cfg.display.RESET_ON_STARTUP !== false;
-        $theme.value = cfg.config.THEME || 'default';
+        $theme.value = cfg.config.THEME || 'v2';
       } catch (e) {
         showStatus('Failed to load config: ' + e, true);
       }
     }
+
+    // Open Template Editor button
+    document.getElementById('btn-editor').addEventListener('click', async () => {
+      try {
+        await invoke('open_editor');
+      } catch (e) {
+        showStatus('Failed to open editor: ' + e, true);
+      }
+    });
 
     document.getElementById('btn-save').addEventListener('click', async () => {
       if (!isValidTheme($theme.value.trim())) {

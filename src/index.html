@@ -194,21 +194,44 @@
     var DEFAULT_TEMPLATE = 'v2';
 
     function activateTemplate(templateId) {
-      if (templateId !== 'v1' && templateId !== 'v2') {
-        templateId = DEFAULT_TEMPLATE;
-      }
-
       // Swap CSS
       var cssLink = document.getElementById('template-css');
       cssLink.href = 'templates/' + templateId + '/style.css';
 
-      // Show the right template, hide the other
+      // Hide all inline templates
       var all = document.querySelectorAll('.template');
       for (var i = 0; i < all.length; i++) {
         all[i].classList.remove('active');
       }
-      var tpl = document.getElementById('tpl-' + templateId);
-      if (tpl) tpl.classList.add('active');
+
+      // Remove any previously loaded custom template DOM
+      var existingCustom = document.getElementById('tpl-custom');
+      if (existingCustom) existingCustom.remove();
+
+      // Check if this is a built-in template (v1 or v2) with inline DOM
+      var builtinTpl = document.getElementById('tpl-' + templateId);
+      if (builtinTpl) {
+        builtinTpl.classList.add('active');
+      } else {
+        // Custom template: fetch template.html and inject into DOM
+        fetch('templates/' + templateId + '/template.html')
+          .then(function(resp) {
+            if (!resp.ok) throw new Error('Template not found');
+            return resp.text();
+          })
+          .then(function(html) {
+            var container = document.createElement('div');
+            container.className = 'template active';
+            container.id = 'tpl-custom';
+            container.innerHTML = html;
+            document.body.insertBefore(container, document.querySelector('script'));
+          })
+          .catch(function() {
+            // Fallback to default template if custom fails
+            var fallback = document.getElementById('tpl-' + DEFAULT_TEMPLATE);
+            if (fallback) fallback.classList.add('active');
+          });
+      }
 
       // Load the template's JS
       var existing = document.getElementById('template-js');

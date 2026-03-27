@@ -9,6 +9,7 @@ mod lhm;
 mod screenshot;
 mod sensors;
 mod startup;
+mod templates;
 mod tray;
 
 use display::diff::FrameDiffer;
@@ -46,6 +47,12 @@ fn main() {
             reload_monitor,
             get_run_on_startup,
             set_run_on_startup,
+            templates::list_templates,
+            templates::read_template_manifest,
+            templates::save_template,
+            templates::delete_template,
+            templates::clone_template,
+            open_editor,
         ])
         .setup(move |app| {
             let app_handle = app.handle().clone();
@@ -403,6 +410,12 @@ fn get_run_on_startup() -> bool {
 #[tauri::command]
 fn set_run_on_startup(enable: bool) -> Result<(), String> {
     startup::set_run_on_startup(enable)
+}
+
+#[tauri::command]
+fn open_editor(app: tauri::AppHandle) -> Result<(), String> {
+    tray::open_editor_window(&app);
+    Ok(())
 }
 
 /// Initialize logger that writes to a file next to the executable.
