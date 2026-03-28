@@ -193,53 +193,103 @@
     // Template bootstrapper — activates v1 or v2 based on THEME config
     var DEFAULT_TEMPLATE = 'v2';
 
-    function activateTemplate(templateId) {
-      // Swap CSS
-      var cssLink = document.getElementById('template-css');
-      cssLink.href = 'templates/' + templateId + '/style.css';
+    // Signal for the display loop: don't screenshot until the template is rendered
+    window.__templateReady = false;
+    function markTemplateReady() {
+      window.__templateReady = true;
+      window.dispatchEvent(new Event('template-ready'));
+    }
 
+    // Helper to log messages from webview to the Rust log file
+    function wlog(msg) {
+      try { window.__TAURI__.core.invoke('webview_log', { level: 'info', msg: msg }); } catch(e) {}
+      console.log(msg);
+    }
+
+    function activateTemplate(templateId) {
+      wlog('[TEMPLATE] activateTemplate: ' + templateId);
+      document.title = 'Loading: ' + templateId;
       // Hide all inline templates
       var all = document.querySelectorAll('.template');
       for (var i = 0; i < all.length; i++) {
         all[i].classList.remove('active');
       }
 
-      // Remove any previously loaded custom template DOM
+      // Remove any previously loaded custom template DOM/CSS/JS
       var existingCustom = document.getElementById('tpl-custom');
       if (existingCustom) existingCustom.remove();
+      var existingCustomCss = document.getElementById('custom-template-css');
+      if (existingCustomCss) existingCustomCss.remove();
+      var existingCustomJs = document.getElementById('custom-template-js');
+      if (existingCustomJs) existingCustomJs.remove();
 
       // Check if this is a built-in template (v1 or v2) with inline DOM
       var builtinTpl = document.getElementById('tpl-' + templateId);
       if (builtinTpl) {
+        // Built-in: load CSS from file URL, show inline DOM, load JS from file URL
+        var cssLink = document.getElementById('template-css');
+        cssLink.disabled = false;
+        cssLink.href = 'templates/' + templateId + '/style.css';
         builtinTpl.classList.add('active');
+
+        var existing = document.getElementById('template-js');
+        if (existing) existing.remove();
+        var script = document.createElement('script');
+        script.id = 'template-js';
+        script.onload = markTemplateReady;
+        script.src = 'templates/' + templateId + '/app.js';
+        document.body.appendChild(script);
       } else {
-        // Custom template: fetch template.html and inject into DOM
-        fetch('templates/' + templateId + '/template.html')
-          .then(function(resp) {
-            if (!resp.ok) throw new Error('Template not found');
-            return resp.text();
-          })
-          .then(function(html) {
+        // Custom template: CSS/JS injected by Rust via WebviewWindow::eval()
+        // which completely bypasses CSP (runs at browser-engine level).
+        wlog('[TEMPLATE] Custom: loading ' + templateId);
+
+        window.__TAURI__.core.invoke('read_template_files', { name: templateId })
+          .then(function(files) {
+            wlog('[TEMPLATE] Got HTML: ' + files.html.length + ' bytes');
+
+            // Disable built-in stylesheet
+            var cssLink = document.getElementById('template-css');
+            cssLink.disabled = true;
+            cssLink.removeAttribute('href');
+
+            // Remove old built-in script
+            var existing = document.getElementById('template-js');
+            if (existing) existing.remove();
+
+            // Inject HTML into DOM (DOM manipulation is not affected by CSP)
             var container = document.createElement('div');
             container.className = 'template active';
             container.id = 'tpl-custom';
-            container.innerHTML = html;
+            container.innerHTML = files.html;
             document.body.insertBefore(container, document.querySelector('script'));
+
+            // Have Rust inject CSS and JS via eval() — bypasses CSP entirely
+            return window.__TAURI__.core.invoke('inject_custom_template', { name: templateId });
           })
-          .catch(function() {
-            // Fallback to default template if custom fails
+          .then(function() {
+            wlog('[TEMPLATE] Custom CSS/JS injected OK by Rust');
+            document.title = 'Ready: ' + templateId;
+            markTemplateReady();
+          })
+          .catch(function(err) {
+            wlog('[TEMPLATE] Custom template load FAILED: ' + err);
+            document.title = 'FAILED: ' + templateId + ' — ' + err;
+            // Fallback to default template
             var fallback = document.getElementById('tpl-' + DEFAULT_TEMPLATE);
-            if (fallback) fallback.classList.add('active');
+            if (fallback) {
+              var cssLink = document.getElementById('template-css');
+              cssLink.disabled = false;
+              cssLink.href = 'templates/' + DEFAULT_TEMPLATE + '/style.css';
+              fallback.classList.add('active');
+              var script = document.createElement('script');
+              script.id = 'template-js';
+              script.onload = markTemplateReady;
+              script.src = 'templates/' + DEFAULT_TEMPLATE + '/app.js';
+              document.body.appendChild(script);
+            }
           });
       }
-
-      // Load the template's JS
-      var existing = document.getElementById('template-js');
-      if (existing) existing.remove();
-      var script = document.createElement('script');
-      script.id = 'template-js';
-      script.src = 'templates/' + templateId + '/app.js';
-      document.body.appendChild(script);
     }
 
     function initTemplate(attempt) {
@@ -248,6 +298,7 @@
       if (window.__TAURI__ && window.__TAURI__.core) {
         window.__TAURI__.core.invoke('get_config').then(function(cfg) {
           var theme = cfg.config.THEME || DEFAULT_TEMPLATE;
+          wlog('[TEMPLATE] initTemplate got THEME=' + theme);
           activateTemplate(theme);
         }).catch(function() {
           activateTemplate(DEFAULT_TEMPLATE);

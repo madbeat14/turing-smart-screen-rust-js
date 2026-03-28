@@ -214,6 +214,86 @@
     });
   }
 
+  // ── Apply to Monitor ───────────────────────────────────────
+
+  function applyToMonitor() {
+    if (!manifest) return;
+
+    var name = $templateName.value.trim().toLowerCase();
+    if (!/^[a-z0-9_-]{1,64}$/.test(name)) {
+      showStatus('Invalid template name.', true);
+      return;
+    }
+
+    manifest = updateManifestProperties(manifest, {
+      name: name,
+      displayName: $displayName.value.trim() || formatDisplayName(name)
+    });
+
+    var errors = validateManifest(manifest);
+    if (errors.length > 0) {
+      showStatus('Validation errors: ' + errors.join('; '), true);
+      return;
+    }
+
+    var html = compileHtml(manifest);
+    var css = compileCss(manifest);
+    var js = compileJs(manifest);
+    var manifestJson = serializeManifest(manifest);
+
+    showStatus('Saving and applying to monitor...', false);
+
+    // Step 1: Save the template files
+    invoke('save_template', {
+      args: {
+        name: name,
+        manifest: manifestJson,
+        html: html,
+        css: css,
+        js: js
+      }
+    }).then(function() {
+      isDirty = false;
+      loadTemplateList();
+
+      // Step 2: Get current config and update the THEME
+      return invoke('get_config');
+    }).then(function(cfg) {
+      var newConfig = {
+        config: {
+          COM_PORT: cfg.config.COM_PORT,
+          THEME: name,
+          HW_SENSORS: cfg.config.HW_SENSORS,
+          ETH: cfg.config.ETH,
+          WLO: cfg.config.WLO,
+          CPU_FAN: cfg.config.CPU_FAN,
+          PING: cfg.config.PING,
+          WEATHER_API_KEY: '',
+          WEATHER_LATITUDE: cfg.config.WEATHER_LATITUDE,
+          WEATHER_LONGITUDE: cfg.config.WEATHER_LONGITUDE,
+          WEATHER_UNITS: cfg.config.WEATHER_UNITS,
+          WEATHER_LANGUAGE: cfg.config.WEATHER_LANGUAGE
+        },
+        display: {
+          REVISION: cfg.display.REVISION,
+          BRIGHTNESS: cfg.display.BRIGHTNESS,
+          DISPLAY_REVERSE: cfg.display.DISPLAY_REVERSE,
+          RESET_ON_STARTUP: cfg.display.RESET_ON_STARTUP
+        }
+      };
+      return invoke('save_config', { newConfig: newConfig });
+    }).then(function() {
+      // Step 3: Reload the monitor webview and restart display
+      return invoke('reload_monitor');
+    }).then(function() {
+      return invoke('restart_display');
+    }).then(function() {
+      showStatus('Applied "' + name + '" to monitor!', false);
+    }).catch(function(e) {
+      showStatus('Apply failed: ' + e, true);
+    });
+  }
+
   // ── Preview ─────────────────────────────────────────────────
 
   function showPreview() {
@@ -422,6 +502,8 @@
         showPreview();
       }
     });
+
+    document.getElementById('btn-apply-monitor').addEventListener('click', applyToMonitor);
 
     document.getElementById('btn-export').addEventListener('click', exportManifest);
     document.getElementById('btn-import').addEventListener('click', importManifest);

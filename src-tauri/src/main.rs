@@ -23,6 +23,16 @@ use tauri::Manager;
 /// Wrapper so we can store the restart sender in Tauri managed state.
 pub struct RestartSender(pub mpsc::Sender<()>);
 
+/// Log a message from the webview to the Rust logger
+#[tauri::command]
+fn webview_log(level: String, msg: String) {
+    match level.as_str() {
+        "error" => error!("[WEBVIEW] {}", msg),
+        "warn" => warn!("[WEBVIEW] {}", msg),
+        _ => info!("[WEBVIEW] {}", msg),
+    }
+}
+
 fn main() {
     // Write logs to a file so we can diagnose issues even when running
     // as admin (no console window). File: turing-smart-screen.log next to the exe.
@@ -49,10 +59,14 @@ fn main() {
             set_run_on_startup,
             templates::list_templates,
             templates::read_template_manifest,
+            templates::read_template_files,
+            templates::get_template_paths,
+            templates::inject_custom_template,
             templates::save_template,
             templates::delete_template,
             templates::clone_template,
             open_editor,
+            webview_log,
         ])
         .setup(move |app| {
             let app_handle = app.handle().clone();
@@ -178,6 +192,8 @@ fn run_display_loop(
 
     // Track iterations for periodic health check (every ~5 seconds)
     let mut health_check_counter: u32 = 0;
+    // Frame counter for debug logging (first few frames)
+    let mut frame_counter: u64 = 0;
 
     loop {
         // Check for restart signal (settings changed or tray "Reset Monitor")
@@ -201,6 +217,13 @@ fn run_display_loop(
             }
             // Force full frame redraw
             differ.reset();
+            // Wait for webview to reload and the new template to finish rendering.
+            // Custom templates load asynchronously via IPC, so without this delay
+            // the display loop would screenshot a blank/partially-rendered page.
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            // Reset frame counter so we get debug logs for the post-restart frames
+            frame_counter = 0;
+            info!("Post-restart: resuming screenshot capture");
         }
 
         // Check if a reconnection happened (write-error path sets this flag).
@@ -247,7 +270,37 @@ fn run_display_loop(
             screen_w as u32,
             screen_h as u32,
         ) {
-            Ok(pixels) => pixels,
+            Ok(pixels) => {
+                if frame_counter < 5 {
+                    info!("Screenshot #{}: {} bytes, {}x{}", frame_counter, pixels.len(), screen_w, screen_h);
+                }
+                // Save the first screenshot after each restart as a debug PNG
+                if frame_counter == 0 {
+                    // Count non-black pixels to detect blank renders
+                    let non_black = pixels.chunks(4)
+                        .filter(|p| p[0] > 5 || p[1] > 5 || p[2] > 5)
+                        .count();
+                    let total = pixels.len() / 4;
+                    info!("Screenshot pixel analysis: {}/{} non-black pixels ({:.1}%)",
+                        non_black, total, (non_black as f64 / total as f64) * 100.0);
+                    
+                    let ts = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs();
+                    let debug_path = config::AppConfig::config_dir()
+                        .join(format!("debug_screenshot_{}.png", ts));
+                    if let Some(img) = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(
+                        screen_w as u32, screen_h as u32, pixels.clone()
+                    ) {
+                        match img.save(&debug_path) {
+                            Ok(_) => info!("Debug screenshot saved to {:?}", debug_path),
+                            Err(e) => warn!("Failed to save debug screenshot: {}", e),
+                        }
+                    }
+                }
+                pixels
+            }
             Err(e) => {
                 warn!("Screenshot failed: {}", e);
                 std::thread::sleep(std::time::Duration::from_secs(1));
@@ -263,8 +316,16 @@ fn run_display_loop(
 
         if dirty_rects.is_empty() {
             // Frame unchanged — skip serial TX
+            if frame_counter < 5 {
+                info!("Frame #{}: no dirty rects (unchanged)", frame_counter);
+            }
+            frame_counter += 1;
             std::thread::sleep(std::time::Duration::from_millis(100));
             continue;
+        }
+
+        if frame_counter < 10 {
+            info!("Frame #{}: {} dirty rects to send", frame_counter, dirty_rects.len());
         }
 
         // Send only changed regions
@@ -290,6 +351,8 @@ fn run_display_loop(
                 break;
             }
         }
+
+        frame_counter += 1;
 
         // Adaptive sleep: shorter when many changes, longer when few
         let sleep_ms = if dirty_rects.len() > 5 { 200 } else { 500 };

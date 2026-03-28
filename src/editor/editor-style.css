@@ -88,6 +88,12 @@ body {
 }
 .btn-success:hover { background: #16a34a; }
 
+.btn-apply {
+  background: #f59e0b;
+  color: #1a1a2e;
+}
+.btn-apply:hover { background: #d97706; }
+
 .btn-small {
   padding: 3px 8px;
   font-size: 11px;
