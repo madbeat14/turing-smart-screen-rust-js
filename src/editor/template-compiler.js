@@ -8,7 +8,7 @@
  */
 function compileHtml(manifest) {
   var lines = [];
-  lines.push('  <div class="monitor" style="position:relative;width:480px;height:320px;background:' + escHtml(manifest.backgroundColor) + ';">');
+  lines.push('  <div class="monitor">');
 
   for (var i = 0; i < manifest.widgets.length; i++) {
     var w = manifest.widgets[i];
@@ -20,43 +20,42 @@ function compileHtml(manifest) {
 }
 
 function compileWidgetHtml(w) {
-  var posStyle = 'position:absolute;left:' + w.x + 'px;top:' + w.y + 'px;width:' + w.width + 'px;height:' + w.height + 'px;';
   var cls = 'widget w-' + w.id;
 
   switch (w.type) {
     case 'metric-card':
-      return compileMetricCardHtml(w, posStyle, cls);
+      return compileMetricCardHtml(w, cls);
     case 'value-display':
-      return compileValueDisplayHtml(w, posStyle, cls);
+      return compileValueDisplayHtml(w, cls);
     case 'progress-bar':
-      return compileProgressBarHtml(w, posStyle, cls);
+      return compileProgressBarHtml(w, cls);
     case 'sparkline':
-      return compileSparklineHtml(w, posStyle, cls);
+      return compileSparklineHtml(w, cls);
     case 'clock':
-      return compileClockHtml(w, posStyle, cls);
+      return compileClockHtml(w, cls);
     case 'network-pair':
-      return compileNetworkPairHtml(w, posStyle, cls);
+      return compileNetworkPairHtml(w, cls);
     case 'label':
-      return compileLabelHtml(w, posStyle, cls);
+      return compileLabelHtml(w, cls);
     case 'divider':
-      return compileDividerHtml(w, posStyle, cls);
+      return compileDividerHtml(w, cls);
     default:
       return '    <!-- Unknown widget type: ' + escHtml(w.type) + ' -->';
   }
 }
 
-function compileMetricCardHtml(w, posStyle, cls) {
+function compileMetricCardHtml(w, cls) {
   var c = w.config;
   var iconHtml = c.icon && c.icon !== 'none' && WIDGET_ICONS[c.icon] ? WIDGET_ICONS[c.icon] : '';
   var lines = [];
 
   if (c.theme === 'v1') {
-    lines.push('    <div class="' + cls + ' card v1-card" id="card-' + w.id + '" style="' + posStyle + '">');
+    lines.push('    <div class="' + cls + ' card v1-card" id="card-' + w.id + '">');
     lines.push('      <div class="card-header">' + escHtml(c.title) + '</div>');
     lines.push('      <div class="card-value" id="primary-' + w.id + '">');
     lines.push('        <span class="value">--</span><span style="font-size:12px">' + escHtml(c.primaryUnit) + '</span>');
     lines.push('      </div>');
-    
+
     if (c.secondaryFields && c.secondaryFields.length > 0) {
       lines.push('      <div class="card-sub" id="sec-0-' + w.id + '">-- ' + escHtml(c.secondaryFields[0].unit) + '</div>');
     }
@@ -72,7 +71,7 @@ function compileMetricCardHtml(w, posStyle, cls) {
   }
 
   // Default v2 theme
-  lines.push('    <div class="' + cls + ' card state-normal" id="card-' + w.id + '" style="' + posStyle + '">');
+  lines.push('    <div class="' + cls + ' card state-normal" id="card-' + w.id + '">');
   lines.push('      <div class="card-header">' + iconHtml + ' ' + escHtml(c.title) + '</div>');
   lines.push('      <div class="metrics-row">');
   lines.push('        <div class="metric-primary" id="primary-' + w.id + '">');
@@ -105,10 +104,10 @@ function compileMetricCardHtml(w, posStyle, cls) {
   return lines.join('\n');
 }
 
-function compileValueDisplayHtml(w, posStyle, cls) {
+function compileValueDisplayHtml(w, cls) {
   var c = w.config;
   var lines = [];
-  lines.push('    <div class="' + cls + ' value-display" style="' + posStyle + '">');
+  lines.push('    <div class="' + cls + ' value-display">');
   if (c.label) {
     lines.push('      <div class="vd-label">' + escHtml(c.label) + '</div>');
   }
@@ -119,10 +118,10 @@ function compileValueDisplayHtml(w, posStyle, cls) {
   return lines.join('\n');
 }
 
-function compileProgressBarHtml(w, posStyle, cls) {
+function compileProgressBarHtml(w, cls) {
   var c = w.config;
   var lines = [];
-  lines.push('    <div class="' + cls + ' standalone-progress" style="' + posStyle + '">');
+  lines.push('    <div class="' + cls + ' standalone-progress">');
   lines.push('      <div class="progress-track"><div class="progress-fill" id="bar-' + w.id + '"></div></div>');
   if (c.showLabel) {
     lines.push('      <div class="progress-label" id="bar-label-' + w.id + '">0%</div>');
@@ -131,18 +130,18 @@ function compileProgressBarHtml(w, posStyle, cls) {
   return lines.join('\n');
 }
 
-function compileSparklineHtml(w, posStyle, cls) {
+function compileSparklineHtml(w, cls) {
   var lines = [];
-  lines.push('    <div class="' + cls + ' standalone-sparkline" style="' + posStyle + '">');
-  lines.push('      <div class="sparkline-container" style="width:100%;height:100%"><canvas id="spark-' + w.id + '"></canvas></div>');
+  lines.push('    <div class="' + cls + ' standalone-sparkline">');
+  lines.push('      <div class="sparkline-container"><canvas id="spark-' + w.id + '"></canvas></div>');
   lines.push('    </div>');
   return lines.join('\n');
 }
 
-function compileClockHtml(w, posStyle, cls) {
+function compileClockHtml(w, cls) {
   var lines = [];
   if (w.config.theme === 'v1') {
-    lines.push('    <div class="' + cls + ' card v1-card clock-widget" style="' + posStyle + '">');
+    lines.push('    <div class="' + cls + ' card v1-card clock-widget">');
     lines.push('      <div class="card-header">TIME</div>');
     lines.push('      <div class="card-value" id="clock-time-' + w.id + '"><span class="value">--:--</span></div>');
     if (w.config.showDate) {
@@ -152,7 +151,7 @@ function compileClockHtml(w, posStyle, cls) {
     return lines.join('\n');
   }
 
-  lines.push('    <div class="' + cls + ' card clock-widget" style="' + posStyle + '">');
+  lines.push('    <div class="' + cls + ' card clock-widget">');
   lines.push('      <div class="card-header">' + (WIDGET_ICONS.clock || '') + ' TIME</div>');
   lines.push('      <div class="clock-time" id="clock-time-' + w.id + '">--:--:--</div>');
   if (w.config.showDate) {
@@ -162,10 +161,10 @@ function compileClockHtml(w, posStyle, cls) {
   return lines.join('\n');
 }
 
-function compileNetworkPairHtml(w, posStyle, cls) {
+function compileNetworkPairHtml(w, cls) {
   var lines = [];
   if (w.config.theme === 'v1') {
-    lines.push('    <div class="' + cls + ' card v1-card network-widget" style="' + posStyle + '">');
+    lines.push('    <div class="' + cls + ' card v1-card network-widget">');
     lines.push('      <div class="card-header">NETWORK</div>');
     lines.push('      <div class="card-value" id="net-up-' + w.id + '"><span class="arrow up">&uarr;</span> <span class="value">--</span> <span class="unit">KB/s</span></div>');
     lines.push('      <div class="card-sub" id="net-down-' + w.id + '"><span class="arrow down">&darr;</span> <span class="value">--</span> <span class="unit">KB/s</span></div>');
@@ -173,7 +172,7 @@ function compileNetworkPairHtml(w, posStyle, cls) {
     return lines.join('\n');
   }
 
-  lines.push('    <div class="' + cls + ' card network-widget" style="' + posStyle + '">');
+  lines.push('    <div class="' + cls + ' card network-widget">');
   lines.push('      <div class="card-header">' + (WIDGET_ICONS.network || '') + ' NETWORK</div>');
   lines.push('      <div class="net-metrics">');
   lines.push('        <div class="net-metric" id="net-up-' + w.id + '">');
@@ -194,17 +193,12 @@ function compileNetworkPairHtml(w, posStyle, cls) {
   return lines.join('\n');
 }
 
-function compileLabelHtml(w, posStyle, cls) {
-  var align = w.config.align || 'left';
-  return '    <div class="' + cls + ' text-label" style="' + posStyle + 'text-align:' + align + ';">' + escHtml(w.config.text || '') + '</div>';
+function compileLabelHtml(w, cls) {
+  return '    <div class="' + cls + ' text-label">' + escHtml(w.config.text || '') + '</div>';
 }
 
-function compileDividerHtml(w, posStyle, cls) {
-  var isVert = w.config.orientation === 'vertical';
-  var divStyle = isVert
-    ? 'width:2px;height:100%;margin:0 auto;'
-    : 'width:100%;height:2px;margin:auto 0;';
-  return '    <div class="' + cls + ' divider-widget" style="' + posStyle + '"><div style="' + divStyle + 'background:rgba(255,255,255,0.1);border-radius:1px;"></div></div>';
+function compileDividerHtml(w, cls) {
+  return '    <div class="' + cls + ' divider-widget"><div class="divider-inner"></div></div>';
 }
 
 
@@ -244,8 +238,8 @@ function compileCss(manifest) {
 
   // Reset and body
   css.push('*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }');
-  css.push('body { width: 480px; height: 320px; background: var(--bg); font-family: var(--font); color: var(--text-primary); overflow: hidden; user-select: none; -webkit-font-smoothing: antialiased; }');
-  css.push('.monitor { display: block; position: relative; width: 100%; height: 100%; padding: 0; margin: 0; }');
+  css.push('body { width: ' + (manifest.canvasWidth || 480) + 'px; height: ' + (manifest.canvasHeight || 320) + 'px; background: var(--bg); font-family: var(--font); color: var(--text-primary); overflow: hidden; user-select: none; -webkit-font-smoothing: antialiased; }');
+  css.push('.monitor { display: block; position: relative; width: 100%; height: 100%; padding: 0; margin: 0; background: var(--bg); }');
   css.push('.widget { position: absolute; }');
   css.push('');
 
@@ -296,7 +290,7 @@ function compileCss(manifest) {
   css.push('');
 
   // Sparkline
-  css.push('.sparkline-container { flex: 1; min-height: 0; margin-top: 3px; border-radius: 4px; overflow: hidden; background: rgba(255,255,255,0.015); }');
+  css.push('.sparkline-container { flex: 1; min-height: 0; margin-top: 3px; border-radius: 4px; overflow: hidden; background: rgba(255,255,255,0.015); width: 100%; height: 100%; }');
   css.push('.sparkline-container canvas { display: block; width: 100%; height: 100%; }');
   css.push('');
 
@@ -334,15 +328,37 @@ function compileCss(manifest) {
 
   // Divider
   css.push('.divider-widget { display: flex; align-items: center; justify-content: center; }');
+  css.push('.divider-inner { background: rgba(255,255,255,0.1); border-radius: 1px; }');
   css.push('');
 
-  // Per-widget style overrides
+  // Per-widget style and positioning overrides.
+  // Moved to CSS classes because inline styles are blocked by Tauri v2 CSP.
   for (var i = 0; i < manifest.widgets.length; i++) {
     var w = manifest.widgets[i];
+    
+    // Position and Size
+    css.push('.w-' + w.id + ' { position: absolute; left: ' + w.x + 'px; top: ' + w.y + 'px; width: ' + w.width + 'px; height: ' + w.height + 'px; }');
+    
+    // Custom Background Color
     if (w.style && w.style.backgroundColor !== s.backgroundColor) {
       css.push('.w-' + w.id + '.card { background: ' + w.style.backgroundColor + '; }');
     }
+    
+    // Label Alignment
+    if (w.type === 'label' && w.config.align) {
+      css.push('.w-' + w.id + '.text-label { justify-content: ' + (w.config.align === 'center' ? 'center' : (w.config.align === 'right' ? 'flex-end' : 'flex-start')) + '; text-align: ' + w.config.align + '; }');
+    }
+    
+    // Divider Orientation
+    if (w.type === 'divider') {
+      var isVert = w.config.orientation === 'vertical';
+      var dW = isVert ? '2px' : '100%';
+      var dH = isVert ? '100%' : '2px';
+      var dM = isVert ? '0 auto' : 'auto 0';
+      css.push('.w-' + w.id + ' .divider-inner { width: ' + dW + '; height: ' + dH + '; margin: ' + dM + '; }');
+    }
   }
+
 
   return css.join('\n');
 }
@@ -432,7 +448,7 @@ function compileJs(manifest) {
   js.push('');
 
   // Clock intervals
-  var clockWidgets = manifest.widgets.filter(function(w) { return w.type === 'clock'; });
+  var clockWidgets = manifest.widgets.filter(function (w) { return w.type === 'clock'; });
   if (clockWidgets.length > 0) {
     js.push('function updateClocks() {');
     js.push('  var now = new Date();');
