@@ -365,20 +365,28 @@ fn generate_default_manifest(source_name: &str, target_name: &str) -> String {
     let display_name = format_display_name(target_name);
     let use_sparklines = source_name != "v1";
 
+    let (primary_fs, secondary_fs, header_fs) = if source_name == "v1" {
+        (22, 12, 10)
+    } else {
+        (20, 11, 9) // Default v2-like sizes
+    };
+
     let widget_style = serde_json::json!({
         "backgroundColor": "#16161e",
         "borderColor": "rgba(255,255,255,0.06)",
         "borderRadius": 8,
         "fontFamily": "'Inter', 'Segoe UI', system-ui, sans-serif",
-        "primaryFontSize": 20,
-        "secondaryFontSize": 11,
-        "headerFontSize": 8.5,
-        "textColor": "#e8ecf1",
+        "primaryFontSize": primary_fs,
+        "secondaryFontSize": secondary_fs,
+        "headerFontSize": header_fs,
+        "textColor": "#e6edf3",
         "secondaryTextColor": "#6b7280",
         "normalColor": "#22c55e",
         "warningColor": "#f59e0b",
         "criticalColor": "#ef4444"
     });
+
+    let theme = if source_name == "v1" { "v1" } else { "v2" };
 
     let manifest = serde_json::json!({
         "version": 1,
@@ -395,7 +403,7 @@ fn generate_default_manifest(source_name: &str, target_name: &str) -> String {
                 "type": "metric-card",
                 "x": 5, "y": 5, "width": 155, "height": 155,
                 "config": {
-                    "title": "CPU", "icon": "cpu",
+                    "title": "CPU", "icon": "cpu", "theme": theme,
                     "primaryField": "cpu_temp", "primaryUnit": "\u{00b0}C",
                     "secondaryFields": [
                         {"field": "cpu_freq", "unit": "MHz"},
@@ -412,7 +420,7 @@ fn generate_default_manifest(source_name: &str, target_name: &str) -> String {
                 "type": "metric-card",
                 "x": 165, "y": 5, "width": 155, "height": 155,
                 "config": {
-                    "title": "GPU", "icon": "gpu",
+                    "title": "GPU", "icon": "gpu", "theme": theme,
                     "primaryField": "gpu_temp", "primaryUnit": "\u{00b0}C",
                     "secondaryFields": [
                         {"field": "gpu_freq", "unit": "MHz"},
@@ -429,10 +437,12 @@ fn generate_default_manifest(source_name: &str, target_name: &str) -> String {
                 "type": "metric-card",
                 "x": 325, "y": 5, "width": 150, "height": 155,
                 "config": {
-                    "title": "MEMORY", "icon": "memory",
+                    "title": "MEMORY", "icon": "memory", "theme": theme,
                     "primaryField": "ram_used", "primaryUnit": "%",
-                    "secondaryFields": [],
-                    "progressField": "ram_used", "sparklineField": "ram_used",
+                    "secondaryFields": [
+                        {"field": "ram_total", "unit": ""}
+                    ],
+                    "progressField": "ram_usage", "sparklineField": "ram_usage",
                     "showSparkline": use_sparklines, "showProgress": true,
                     "thresholds": {"warning": 70, "critical": 90}
                 },
@@ -443,10 +453,12 @@ fn generate_default_manifest(source_name: &str, target_name: &str) -> String {
                 "type": "metric-card",
                 "x": 5, "y": 165, "width": 155, "height": 150,
                 "config": {
-                    "title": "DISK", "icon": "disk",
+                    "title": "DISK", "icon": "disk", "theme": theme,
                     "primaryField": "disk_used", "primaryUnit": "%",
-                    "secondaryFields": [],
-                    "progressField": "disk_used", "sparklineField": "disk_used",
+                    "secondaryFields": [
+                         {"field": "disk_total", "unit": ""}
+                    ],
+                    "progressField": "disk_usage", "sparklineField": "disk_usage",
                     "showSparkline": use_sparklines, "showProgress": true,
                     "thresholds": {"warning": 80, "critical": 95}
                 },
@@ -457,6 +469,7 @@ fn generate_default_manifest(source_name: &str, target_name: &str) -> String {
                 "type": "network-pair",
                 "x": 165, "y": 165, "width": 155, "height": 150,
                 "config": {
+                    "theme": theme,
                     "showSparkline": use_sparklines,
                     "maxPoints": 120
                 },
@@ -467,6 +480,7 @@ fn generate_default_manifest(source_name: &str, target_name: &str) -> String {
                 "type": "clock",
                 "x": 325, "y": 165, "width": 150, "height": 150,
                 "config": {
+                    "theme": theme,
                     "format24h": true,
                     "showDate": true,
                     "showSeconds": true
@@ -545,6 +559,10 @@ pub fn get_template_paths(name: String) -> Result<TemplatePaths, String> {
 /// Inject a custom template's CSS and JS directly into the monitor webview
 /// using WebviewWindow::eval(). This bypasses CSP entirely because eval()
 /// runs at the browser-engine level, not through the content security policy.
+///
+/// CSS is injected via adoptedStyleSheets (a JS API not subject to CSP).
+/// Note: <style> elements don't work because Tauri v2 replaces 'unsafe-inline'
+/// with nonce-based CSP, blocking any <style> without the correct nonce.
 #[tauri::command]
 pub fn inject_custom_template(
     name: String,
@@ -563,35 +581,27 @@ pub fn inject_custom_template(
         .get_webview_window("monitor")
         .ok_or("Monitor window not found")?;
 
-    // Inject CSS: create a CSSStyleSheet (bypasses CSP style-src restrictions entirely)
+    // Inject CSS via adoptedStyleSheets — a JS API not subject to CSP nonce restrictions.
+    // Clear previous custom sheets first to prevent accumulation on re-activation.
     let css_escaped = css
         .replace('\\', "\\\\")
         .replace('`', "\\`")
         .replace("${", "\\${");
     let css_js = format!(
         r#"(function() {{
-            try {{
-                var sheet = new CSSStyleSheet();
-                sheet.replaceSync(`{}`);
-                document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
-            }} catch(e) {{
-                // Fallback for older WebViews if needed:
-                var old = document.getElementById('custom-template-css');
-                if (old) old.remove();
-                var s = document.createElement('style');
-                s.id = 'custom-template-css';
-                s.textContent = `{}`;
-                document.head.appendChild(s);
-            }}
+            if (typeof wlog === 'function') wlog('[TEMPLATE] Injecting CSS via adoptedStyleSheets...');
+            var sheet = new CSSStyleSheet();
+            sheet.replaceSync(`{}`);
+            // Replace all adopted sheets (clear previous custom template CSS)
+            document.adoptedStyleSheets = [sheet];
+            if (typeof wlog === 'function') wlog('[TEMPLATE] CSS adoptedStyleSheets applied');
         }})();"#,
-        css_escaped, css_escaped
+        css_escaped
     );
     monitor.eval(&css_js).map_err(|e| format!("CSS inject failed: {}", e))?;
     info!("[inject_custom_template] CSS injected for '{}'", name);
 
     // Inject JS: execute the template's app.js directly via eval
-    // DO NOT escape backslashes or backticks here! We are injecting raw code,
-    // not putting a string inside a template literal like we did for CSS.
     let js_wrapper = format!(
         r#"(function() {{
             var old = document.getElementById('template-js');

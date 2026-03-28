@@ -30,10 +30,12 @@ pub struct SensorData {
     // Memory
     pub ram_used: Option<f64>,
     pub ram_total: Option<f64>,
+    pub ram_usage: Option<f64>,
 
     // Disk
     pub disk_used: Option<f64>,
     pub disk_total: Option<f64>,
+    pub disk_usage: Option<f64>,
 
     // Network
     pub net_upload: Option<f64>,
@@ -65,6 +67,17 @@ pub fn sensor_loop(app_handle: AppHandle, lhm_state: Arc<Mutex<LhmSensorData>>) 
         let net_data = network::compute_rates(&prev_net, &curr_net, 0.5);
         prev_net = curr_net;
 
+        // Calculate percentages for RAM and Disk
+        let ram_usage = match (mem_data.used, mem_data.total) {
+            (Some(u), Some(t)) if t > 0.0 => Some((u / t) * 100.0),
+            _ => None,
+        };
+
+        let disk_usage = match (disk_data.used, disk_data.total) {
+            (Some(u), Some(t)) if t > 0.0 => Some((u / t) * 100.0),
+            _ => None,
+        };
+
         // Read LHM sensor data (updated by background reader thread)
         let lhm = match lhm_state.lock() {
             Ok(guard) => guard.clone(),
@@ -89,9 +102,11 @@ pub fn sensor_loop(app_handle: AppHandle, lhm_state: Arc<Mutex<LhmSensorData>>) 
 
             ram_used: mem_data.used,
             ram_total: mem_data.total,
+            ram_usage,
 
             disk_used: disk_data.used,
             disk_total: disk_data.total,
+            disk_usage,
 
             net_upload: net_data.upload_rate,
             net_download: net_data.download_rate,

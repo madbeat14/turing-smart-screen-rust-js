@@ -1,0 +1,19 @@
+    Checking turing-smart-screen v0.1.0 (C:\Users\papop\Documents\turing-smart-screen-rust-js\src-tauri)
+error[E0560]: struct `SensorData` has no field named `ram_usage`
+   --> src\sensors\mod.rs:103:13
+    |
+103 |             ram_usage,
+    |             ^^^^^^^^^ `SensorData` does not have this field
+    |
+    = note: all struct fields are already assigned
+
+error[E0560]: struct `SensorData` has no field named `disk_usage`
+   --> src\sensors\mod.rs:107:13
+    |
+107 |             disk_usage,
+    |             ^^^^^^^^^^ `SensorData` does not have this field
+    |
+    = note: all struct fields are already assigned
+
+For more information about this error, try `rustc --explain E0560`.
+error: could not compile `turing-smart-screen` (bin "turing-smart-screen") due to 2 previous errors

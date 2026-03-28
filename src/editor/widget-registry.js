@@ -12,8 +12,10 @@ var SENSOR_FIELDS = [
   { value: 'gpu_freq', label: 'GPU Frequency (MHz)' },
   { value: 'ram_used', label: 'RAM Used (bytes)' },
   { value: 'ram_total', label: 'RAM Total (bytes)' },
+  { value: 'ram_usage', label: 'RAM Usage (%)' },
   { value: 'disk_used', label: 'Disk Used (bytes)' },
   { value: 'disk_total', label: 'Disk Total (bytes)' },
+  { value: 'disk_usage', label: 'Disk Usage (%)' },
   { value: 'net_upload', label: 'Network Upload (bytes/s)' },
   { value: 'net_download', label: 'Network Download (bytes/s)' }
 ];
@@ -48,6 +50,7 @@ var WIDGET_TYPES = {
     minHeight: 80,
     config: {
       title: { type: 'text', default: 'METRIC', label: 'Title' },
+      theme: { type: 'select', default: 'v2', label: 'Theme (v1/v2)', options: [ {value: 'v1', label: 'v1 - Simple'}, {value: 'v2', label: 'v2 - Modern'} ] },
       icon: { type: 'select', default: 'cpu', label: 'Icon', options: ICON_OPTIONS },
       primaryField: { type: 'sensor', default: 'cpu_temp', label: 'Primary Value' },
       primaryUnit: { type: 'text', default: '\u00b0C', label: 'Primary Unit' },
@@ -125,6 +128,7 @@ var WIDGET_TYPES = {
     minWidth: 80,
     minHeight: 50,
     config: {
+      theme: { type: 'select', default: 'v2', label: 'Theme (v1/v2)', options: [ {value: 'v1', label: 'v1 - Simple'}, {value: 'v2', label: 'v2 - Modern'} ] },
       format24h: { type: 'boolean', default: true, label: '24-Hour Format' },
       showDate: { type: 'boolean', default: true, label: 'Show Date' },
       showSeconds: { type: 'boolean', default: true, label: 'Show Seconds' }
@@ -139,6 +143,7 @@ var WIDGET_TYPES = {
     minWidth: 100,
     minHeight: 60,
     config: {
+      theme: { type: 'select', default: 'v2', label: 'Theme (v1/v2)', options: [ {value: 'v1', label: 'v1 - Simple'}, {value: 'v2', label: 'v2 - Modern'} ] },
       showSparkline: { type: 'boolean', default: true, label: 'Show Sparkline' },
       maxPoints: { type: 'number', default: 120, label: 'Max Data Points', min: 20, max: 500 }
     }

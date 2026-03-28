@@ -64,6 +64,7 @@
         if (t.has_manifest) {
           var editBtn = document.createElement('button');
           editBtn.className = 'tli-btn';
+          editBtn.style.marginRight = '4px';
           editBtn.textContent = 'Edit';
           editBtn.dataset.name = t.name;
           editBtn.addEventListener('click', function(e) {
@@ -73,8 +74,20 @@
           item.appendChild(editBtn);
         }
 
+        var previewListBtn = document.createElement('button');
+        previewListBtn.className = 'tli-btn';
+        previewListBtn.style.marginRight = '4px';
+        previewListBtn.textContent = 'Preview';
+        previewListBtn.dataset.name = t.name;
+        previewListBtn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          previewTemplateFromList(e.target.dataset.name);
+        });
+        item.appendChild(previewListBtn);
+
         var cloneBtn = document.createElement('button');
         cloneBtn.className = 'tli-btn';
+        cloneBtn.style.marginRight = '4px';
         cloneBtn.textContent = 'Clone';
         cloneBtn.dataset.name = t.name;
         cloneBtn.addEventListener('click', function(e) {
@@ -175,8 +188,13 @@
   function saveTemplate() {
     if (!manifest) return;
 
-    var name = $templateName.value.trim().toLowerCase();
-    if (!/^[a-z0-9_-]{1,64}$/.test(name)) {
+    var rawName = $templateName.value.trim().toLowerCase();
+    var name = rawName.replace(/[^a-z0-9_-]/g, '-');
+    if (name !== rawName) {
+      $templateName.value = name;
+    }
+    
+    if (name.length > 64 || name.length === 0) {
       showStatus('Invalid template name.', true);
       return;
     }
@@ -219,8 +237,13 @@
   function applyToMonitor() {
     if (!manifest) return;
 
-    var name = $templateName.value.trim().toLowerCase();
-    if (!/^[a-z0-9_-]{1,64}$/.test(name)) {
+    var rawName = $templateName.value.trim().toLowerCase();
+    var name = rawName.replace(/[^a-z0-9_-]/g, '-');
+    if (name !== rawName) {
+      $templateName.value = name;
+    }
+    
+    if (name.length > 64 || name.length === 0) {
       showStatus('Invalid template name.', true);
       return;
     }
@@ -268,7 +291,7 @@
           WLO: cfg.config.WLO,
           CPU_FAN: cfg.config.CPU_FAN,
           PING: cfg.config.PING,
-          WEATHER_API_KEY: '',
+          WEATHER_API_KEY: cfg.config.WEATHER_API_KEY || '',
           WEATHER_LATITUDE: cfg.config.WEATHER_LATITUDE,
           WEATHER_LONGITUDE: cfg.config.WEATHER_LONGITUDE,
           WEATHER_UNITS: cfg.config.WEATHER_UNITS,
@@ -320,6 +343,54 @@
     document.getElementById('canvas-container').style.display = 'flex';
     document.getElementById('btn-preview').textContent = 'Preview';
     document.getElementById('btn-preview').dataset.previewing = '';
+  }
+
+  function previewTemplateFromList(name) {
+    if (manifest && manifest.name === name && isDirty) {
+      // If previewing the actively edited & unsaved template, use the current state
+      showPreview();
+      return;
+    }
+
+    // Load the manifest first, then compile preview from it.
+    // This works for both custom templates (with manifest.json) and avoids
+    // depending on pre-compiled template.html/style.css/app.js files.
+    showStatus('Loading preview for ' + name + '...', false);
+    invoke('read_template_manifest', { name: name }).then(function(json) {
+      var previewManifest = parseManifest(json);
+      var html = compileHtml(previewManifest);
+      var css = compileCss(previewManifest);
+      var js = compileJs(previewManifest);
+
+      var previewHtml = '<!DOCTYPE html><html><head><meta charset="UTF-8">' +
+        '<style>' + css + '</style></head><body>' + html +
+        '<script>' + getMockDataScript() + '</' + 'script>' +
+        '<script>' + js + '</' + 'script></body></html>';
+
+      $previewFrame.srcdoc = previewHtml;
+      $previewFrame.style.display = 'block';
+      document.getElementById('canvas-container').style.display = 'none';
+      document.getElementById('btn-preview').textContent = 'Back to Editor';
+      document.getElementById('btn-preview').dataset.previewing = 'true';
+      showStatus('Previewing: ' + name, false);
+    }).catch(function(e) {
+      // Template has no manifest (e.g., built-in) — try loading compiled files instead
+      invoke('read_template_files', { name: name }).then(function(files) {
+        var previewHtml = '<!DOCTYPE html><html><head><meta charset="UTF-8">' +
+          '<style>' + files.css + '</style></head><body>' + files.html +
+          '<script>' + getMockDataScript() + '</' + 'script>' +
+          '<script>' + files.js + '</' + 'script></body></html>';
+
+        $previewFrame.srcdoc = previewHtml;
+        $previewFrame.style.display = 'block';
+        document.getElementById('canvas-container').style.display = 'none';
+        document.getElementById('btn-preview').textContent = 'Back to Editor';
+        document.getElementById('btn-preview').dataset.previewing = 'true';
+        showStatus('Previewing: ' + name, false);
+      }).catch(function(e2) {
+        showStatus('Cannot preview "' + name + '": no manifest or compiled files found', true);
+      });
+    });
   }
 
   function getMockDataScript() {

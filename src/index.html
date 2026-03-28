@@ -227,7 +227,16 @@
       var builtinTpl = document.getElementById('tpl-' + templateId);
       if (builtinTpl) {
         // Built-in: load CSS from file URL, show inline DOM, load JS from file URL
+        // Re-create the CSS link if it was removed by a previous custom template load
         var cssLink = document.getElementById('template-css');
+        if (!cssLink) {
+          cssLink = document.createElement('link');
+          cssLink.id = 'template-css';
+          cssLink.rel = 'stylesheet';
+          document.head.appendChild(cssLink);
+        }
+        // Clear any adoptedStyleSheets from custom templates
+        document.adoptedStyleSheets = [];
         cssLink.disabled = false;
         cssLink.href = 'templates/' + templateId + '/style.css';
         builtinTpl.classList.add('active');
@@ -248,10 +257,10 @@
           .then(function(files) {
             wlog('[TEMPLATE] Got HTML: ' + files.html.length + ' bytes');
 
-            // Disable built-in stylesheet
+            // Fully remove built-in stylesheet to prevent any CSS conflicts
+            // (WebView2 may cache/apply disabled stylesheets)
             var cssLink = document.getElementById('template-css');
-            cssLink.disabled = true;
-            cssLink.removeAttribute('href');
+            if (cssLink) cssLink.remove();
 
             // Remove old built-in script
             var existing = document.getElementById('template-js');
@@ -264,7 +273,10 @@
             container.innerHTML = files.html;
             document.body.insertBefore(container, document.querySelector('script'));
 
-            // Have Rust inject CSS and JS via eval() — bypasses CSP entirely
+            // Have Rust inject CSS (via adoptedStyleSheets) and JS (via eval)
+            // Note: <style> elements don't work here because Tauri v2 replaces
+            // 'unsafe-inline' with nonce-based CSP. adoptedStyleSheets is a JS API
+            // not subject to CSP, so it works from Rust eval.
             return window.__TAURI__.core.invoke('inject_custom_template', { name: templateId });
           })
           .then(function() {
@@ -278,7 +290,14 @@
             // Fallback to default template
             var fallback = document.getElementById('tpl-' + DEFAULT_TEMPLATE);
             if (fallback) {
+              // Re-create the CSS link if it was removed
               var cssLink = document.getElementById('template-css');
+              if (!cssLink) {
+                cssLink = document.createElement('link');
+                cssLink.id = 'template-css';
+                cssLink.rel = 'stylesheet';
+                document.head.appendChild(cssLink);
+              }
               cssLink.disabled = false;
               cssLink.href = 'templates/' + DEFAULT_TEMPLATE + '/style.css';
               fallback.classList.add('active');
