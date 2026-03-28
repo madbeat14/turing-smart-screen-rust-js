@@ -14,6 +14,12 @@ use std::io::BufRead;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 static LHM_PROCESS: Mutex<Option<Child>> = Mutex::new(None);
 
 /// Sensor data parsed from LhmService JSON output.
@@ -65,6 +71,7 @@ fn kill_existing_lhm() {
             info!("Killing existing LhmService.exe before launching our own");
             let _ = Command::new("taskkill")
                 .args(["/IM", "LhmService.exe", "/F"])
+                .creation_flags(CREATE_NO_WINDOW)
                 .output();
             // Brief wait for the process to fully exit
             std::thread::sleep(std::time::Duration::from_millis(500));
@@ -76,9 +83,6 @@ fn kill_existing_lhm() {
 fn launch_and_read(service_exe: std::path::PathBuf, shared: Arc<Mutex<LhmSensorData>>) {
     #[cfg(target_os = "windows")]
     {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-
         info!("Starting LHM sensor service from {:?}", service_exe);
 
         let working_dir = service_exe.parent().unwrap_or(std::path::Path::new("."));
@@ -184,6 +188,7 @@ fn is_lhm_running() -> bool {
     {
         match Command::new("tasklist")
             .args(["/FI", "IMAGENAME eq LhmService.exe", "/NH"])
+            .creation_flags(CREATE_NO_WINDOW)
             .output()
         {
             Ok(output) => {
@@ -216,6 +221,7 @@ pub fn stop_lhm() {
         info!("Stopping LHM service via taskkill");
         let _ = Command::new("taskkill")
             .args(["/IM", "LhmService.exe", "/F"])
+            .creation_flags(CREATE_NO_WINDOW)
             .output();
     }
 }

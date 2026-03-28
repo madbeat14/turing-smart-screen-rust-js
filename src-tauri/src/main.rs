@@ -1,7 +1,7 @@
 // Turing Smart Screen — Rust + JS Rewrite
 // Entry point: Tauri app setup, sensor loop, display loop
 
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![windows_subsystem = "windows"]
 
 mod config;
 mod display;
