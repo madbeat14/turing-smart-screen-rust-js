@@ -116,12 +116,27 @@ body {
 /* ── Left Panel (Widget Palette + Template List) ──────────── */
 .left-panel {
   width: 200px;
+  min-width: 150px;
+  max-width: 400px;
   background: #16213e;
-  border-right: 1px solid #333;
+  border-right: none;
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
   overflow-y: auto;
+}
+
+/* Resize Handle between left panel and center */
+.panel-resize-handle {
+  width: 5px;
+  cursor: col-resize;
+  background: #333;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.panel-resize-handle:hover,
+.panel-resize-handle.dragging {
+  background: #00d4ff;
 }
 
 .panel-header {
@@ -319,8 +334,10 @@ body {
 /* ── Right Panel (Properties) ─────────────────────────────── */
 .right-panel {
   width: 280px;
+  min-width: 200px;
+  max-width: 500px;
   background: #16213e;
-  border-left: 1px solid #333;
+  border-left: none;
   display: flex;
   flex-direction: column;
   flex-shrink: 0;

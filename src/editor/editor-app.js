@@ -22,25 +22,88 @@
   // ── Initialize ──────────────────────────────────────────────
 
   function init() {
-    canvas = createCanvas($canvasContainer, {
-      onSelect: onWidgetSelect,
-      onMove: onWidgetMove,
-      onResize: onWidgetResize,
-      onDelete: onWidgetDelete,
-      onDrop: onWidgetDrop
+    try {
+      canvas = createCanvas($canvasContainer, {
+        onSelect: onWidgetSelect,
+        onMove: onWidgetMove,
+        onResize: onWidgetResize,
+        onDelete: onWidgetDelete,
+        onDrop: onWidgetDrop
+      });
+
+      loadTemplateList();
+      newTemplate();
+      bindToolbar();
+      bindPalette();
+      bindManifestFields();
+      initPanelResize();
+      initWindowState();
+    } catch (err) {
+      console.error('Editor init failed:', err);
+      document.body.innerHTML = '<div style="padding:20px;color:#ef4444;">Editor failed to initialize: ' + err.message + '</div>';
+    }
+  }
+
+  // ── Panel Resize ────────────────────────────────────────────
+
+  function initPanelResize() {
+    setupResize('left-resize-handle', 'left-panel', 150, 400, false);
+    setupResize('right-resize-handle', 'props-panel', 200, 500, true);
+  }
+
+  function setupResize(handleId, panelId, minW, maxW, invert) {
+    var handle = document.getElementById(handleId);
+    var panel = document.getElementById(panelId);
+    if (!handle || !panel) return;
+
+    var startX = 0;
+    var startWidth = 0;
+
+    handle.addEventListener('mousedown', function(e) {
+      e.preventDefault();
+      startX = e.clientX;
+      startWidth = panel.offsetWidth;
+      handle.classList.add('dragging');
+      document.addEventListener('mousemove', onDrag);
+      document.addEventListener('mouseup', onDragEnd);
     });
 
-    loadTemplateList();
-    newTemplate();
-    bindToolbar();
-    bindPalette();
-    bindManifestFields();
+    function onDrag(e) {
+      var delta = e.clientX - startX;
+      var newWidth = invert ? startWidth - delta : startWidth + delta;
+      newWidth = Math.max(minW, Math.min(maxW, newWidth));
+      panel.style.width = newWidth + 'px';
+    }
+
+    function onDragEnd() {
+      handle.classList.remove('dragging');
+      document.removeEventListener('mousemove', onDrag);
+      document.removeEventListener('mouseup', onDragEnd);
+      if (canvas && manifest) canvas.render(manifest.widgets);
+      // Persist panel widths
+      savePanelWidths();
+    }
+  }
+
+  function savePanelWidths() {
+    var leftPanel = document.getElementById('left-panel');
+    var rightPanel = document.getElementById('props-panel');
+    invoke('save_window_state', {
+      label: 'editor',
+      state: {
+        leftPanelWidth: leftPanel ? leftPanel.offsetWidth : 200,
+        rightPanelWidth: rightPanel ? rightPanel.offsetWidth : 280
+      }
+    }).catch(function() {});
   }
 
   // ── Template List ───────────────────────────────────────────
 
   function loadTemplateList() {
     invoke('list_templates').then(function(templates) {
+      // Notify other windows (e.g. settings) that the template list changed
+      window.__TAURI__.event.emit('templates-changed').catch(function() {});
+
       $templateList.innerHTML = '';
 
       for (var i = 0; i < templates.length; i++) {
@@ -72,6 +135,24 @@
             loadTemplate(e.target.dataset.name);
           });
           item.appendChild(editBtn);
+        } else if (t.is_builtin) {
+          // Built-in template without user copy — Edit button that creates editable copy first
+          var editBuiltinBtn = document.createElement('button');
+          editBuiltinBtn.className = 'tli-btn';
+          editBuiltinBtn.style.marginRight = '4px';
+          editBuiltinBtn.textContent = 'Edit';
+          editBuiltinBtn.dataset.name = t.name;
+          editBuiltinBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            var tplName = e.target.dataset.name;
+            invoke('make_builtin_editable', { name: tplName }).then(function() {
+              loadTemplateList();
+              loadTemplate(tplName);
+            }).catch(function(err) {
+              showStatus('Failed to prepare template for editing: ' + err, true);
+            });
+          });
+          item.appendChild(editBuiltinBtn);
         }
 
         var previewListBtn = document.createElement('button');
@@ -95,6 +176,19 @@
           cloneTemplate(e.target.dataset.name);
         });
         item.appendChild(cloneBtn);
+
+        if (t.is_builtin && t.is_modified) {
+          var resetBtn = document.createElement('button');
+          resetBtn.className = 'tli-btn tli-btn-danger';
+          resetBtn.textContent = 'Reset';
+          resetBtn.title = 'Reset to original built-in template';
+          resetBtn.dataset.name = t.name;
+          resetBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            resetBuiltinTemplate(e.target.dataset.name);
+          });
+          item.appendChild(resetBtn);
+        }
 
         if (!t.is_builtin) {
           var delBtn = document.createElement('button');
@@ -164,6 +258,20 @@
       }
     }).catch(function(e) {
       showStatus('Delete failed: ' + e, true);
+    });
+  }
+
+  function resetBuiltinTemplate(name) {
+    if (!confirm('Reset "' + name + '" to the original built-in template? Your edits will be lost.')) return;
+
+    invoke('reset_builtin_template', { name: name }).then(function() {
+      showStatus('Reset "' + name + '" to default', false);
+      loadTemplateList();
+      if (manifest && manifest.name === name) {
+        newTemplate();
+      }
+    }).catch(function(e) {
+      showStatus('Reset failed: ' + e, true);
     });
   }
 
@@ -651,6 +759,70 @@
     if (!isError) {
       setTimeout(function() { $status.textContent = ''; }, 3000);
     }
+  }
+
+  // ── Window State Persistence ────────────────────────────────
+
+  function initWindowState() {
+    var tauriWindow = window.__TAURI__.window;
+    var leftPanel = document.getElementById('left-panel');
+    var rightPanel = document.getElementById('props-panel');
+
+    // Restore saved panel widths
+    invoke('get_window_state', { label: 'editor' }).then(function(state) {
+      if (!state) return;
+      if (state.leftPanelWidth && leftPanel) {
+        leftPanel.style.width = state.leftPanelWidth + 'px';
+      }
+      if (state.rightPanelWidth && rightPanel) {
+        rightPanel.style.width = state.rightPanelWidth + 'px';
+      }
+      // Re-render canvas after restoring panel widths
+      if (canvas && manifest) canvas.render(manifest.widgets);
+    }).catch(function() {});
+
+    // Save window size + panel widths on resize (debounced)
+    var saveTimer = null;
+    function scheduleSave() {
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(function() {
+        var currentWindow = tauriWindow.getCurrent();
+        Promise.all([
+          currentWindow.outerSize(),
+          currentWindow.scaleFactor()
+        ]).then(function(results) {
+          var size = results[0];
+          var scale = results[1] || 1;
+          invoke('save_window_state', {
+            label: 'editor',
+            state: {
+              width: Math.round(size.width / scale),
+              height: Math.round(size.height / scale),
+              leftPanelWidth: leftPanel ? leftPanel.offsetWidth : 200,
+              rightPanelWidth: rightPanel ? rightPanel.offsetWidth : 280
+            }
+          }).catch(function() {});
+        }).catch(function() {});
+      }, 500);
+    }
+
+    window.addEventListener('resize', scheduleSave);
+
+    // Also save when window is about to close
+    window.addEventListener('beforeunload', function() {
+      var currentWindow = tauriWindow.getCurrent();
+      try {
+        // Sync save attempt — may not complete if window closes fast,
+        // but the resize handler should have caught the latest size already
+        invoke('save_window_state', {
+          label: 'editor',
+          state: {
+            leftPanelWidth: leftPanel ? leftPanel.offsetWidth : 200,
+            rightPanelWidth: rightPanel ? rightPanel.offsetWidth : 280
+          }
+        }).catch(function() {});
+      } catch (e) {}
+    });
   }
 
   // ── Warn on close with unsaved changes ──────────────────────

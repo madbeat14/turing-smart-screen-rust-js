@@ -3,7 +3,6 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src ipc: https://ipc.localhost; frame-src blob:" />
   <title>Template Editor — Turing Smart Screen</title>
   <link rel="stylesheet" href="editor/editor-style.css" />
 </head>
@@ -41,7 +40,7 @@
   <div class="editor-main">
 
     <!-- Left Panel: Widget Palette + Template List -->
-    <div class="left-panel">
+    <div class="left-panel" id="left-panel">
       <div class="panel-header">Widgets</div>
 
       <div class="palette-item" data-type="metric-card">
@@ -114,6 +113,9 @@
       </div>
     </div>
 
+    <!-- Resize handle for left panel -->
+    <div class="panel-resize-handle" id="left-resize-handle"></div>
+
     <!-- Center: Canvas -->
     <div class="center-panel">
       <div id="canvas-container">
@@ -121,6 +123,9 @@
       </div>
       <iframe id="preview-frame" sandbox="allow-scripts"></iframe>
     </div>
+
+    <!-- Resize handle for right panel -->
+    <div class="panel-resize-handle" id="right-resize-handle"></div>
 
     <!-- Right Panel: Properties -->
     <div class="right-panel" id="props-panel">

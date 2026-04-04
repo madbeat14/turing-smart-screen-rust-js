@@ -11,6 +11,7 @@ mod sensors;
 mod startup;
 mod templates;
 mod tray;
+mod window_state;
 
 use display::diff::FrameDiffer;
 use display::rgb565::rgba_to_rgb565_le;
@@ -65,6 +66,10 @@ fn main() {
             templates::save_template,
             templates::delete_template,
             templates::clone_template,
+            templates::make_builtin_editable,
+            templates::reset_builtin_template,
+            window_state::get_window_state,
+            window_state::save_window_state,
             open_editor,
             webview_log,
         ])
@@ -476,9 +481,14 @@ fn set_run_on_startup(enable: bool) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn open_editor(app: tauri::AppHandle) -> Result<(), String> {
-    tray::open_editor_window(&app);
-    Ok(())
+async fn open_editor(app: tauri::AppHandle) -> Result<(), String> {
+    // Must be async so it runs on a background thread — a sync command would
+    // block the main thread and deadlock with WebviewWindowBuilder::build().
+    let handle = app.clone();
+    app.run_on_main_thread(move || {
+        tray::open_editor_window(&handle);
+    })
+    .map_err(|e| format!("Failed to open editor: {}", e))
 }
 
 /// Initialize logger that writes to a file next to the executable.

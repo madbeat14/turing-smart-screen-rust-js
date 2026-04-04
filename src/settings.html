@@ -3,7 +3,6 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: https://ipc.localhost" />
   <title>Settings — Turing Smart Screen</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -12,6 +11,7 @@
       background: #1a1a2e;
       color: #e0e0e0;
       padding: 24px;
+      overflow-y: auto;
     }
     h1 {
       font-size: 18px;
@@ -263,6 +263,31 @@
       };
     }
 
+    async function refreshTemplateList() {
+      const currentValue = $theme.value;
+      try {
+        const templates = await invoke('list_templates');
+        $theme.innerHTML = '';
+        for (const t of templates) {
+          const opt = document.createElement('option');
+          opt.value = t.name;
+          opt.textContent = t.display_name + (t.is_builtin ? ' (built-in)' : '');
+          $theme.appendChild(opt);
+        }
+        // Restore previous selection if it still exists, otherwise keep first
+        if ([...($theme.options)].some(o => o.value === currentValue)) {
+          $theme.value = currentValue;
+        }
+      } catch (e) {
+        console.warn('Could not load template list:', e);
+      }
+    }
+
+    // Listen for template list changes from editor window
+    window.__TAURI__.event.listen('templates-changed', function() {
+      refreshTemplateList();
+    });
+
     async function loadConfig() {
       try {
         // Populate COM port list
@@ -274,20 +299,7 @@
           $comPort.appendChild(opt);
         }
 
-        // Populate template dropdown dynamically
-        try {
-          const templates = await invoke('list_templates');
-          $theme.innerHTML = '';
-          for (const t of templates) {
-            const opt = document.createElement('option');
-            opt.value = t.name;
-            opt.textContent = t.display_name + (t.is_builtin ? ' (built-in)' : '');
-            $theme.appendChild(opt);
-          }
-        } catch (e) {
-          // Fallback to hardcoded list if list_templates is not available
-          console.warn('Could not load template list:', e);
-        }
+        await refreshTemplateList();
 
         // Load current config
         const cfg = await invoke('get_config');
@@ -353,6 +365,32 @@
         setTimeout(() => { $status.textContent = ''; }, 3000);
       }
     }
+
+    // Save window size on resize (debounced)
+    (function() {
+      var tauriWindow = window.__TAURI__.window;
+      var saveTimer = null;
+      window.addEventListener('resize', function() {
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(function() {
+          var currentWindow = tauriWindow.getCurrent();
+          Promise.all([
+            currentWindow.outerSize(),
+            currentWindow.scaleFactor()
+          ]).then(function(results) {
+            var size = results[0];
+            var scale = results[1] || 1;
+            invoke('save_window_state', {
+              label: 'settings',
+              state: {
+                width: Math.round(size.width / scale),
+                height: Math.round(size.height / scale)
+              }
+            }).catch(function() {});
+          }).catch(function() {});
+        }, 500);
+      });
+    })();
 
     loadConfig();
   </script>

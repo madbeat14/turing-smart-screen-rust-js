@@ -419,7 +419,7 @@ function compileJs(manifest) {
   for (var si = 0; si < sparkInits.length; si++) {
     var sp = sparkInits[si];
     var pts = sp.maxPoints || 'MAX_POINTS';
-    js.push('var ' + sp.varName + ' = createSparkline("spark-' + sp.id + '", ' + pts + ', STATE_COLORS.normal.stroke, STATE_COLORS.normal.fill);');
+    js.push('var ' + sp.varName + ' = createSparkline("spark-' + sp.id + '", ' + pts + ', STATE_COLORS.normal.stroke);');
   }
   for (var ni = 0; ni < netSparkInits.length; ni++) {
     var np = netSparkInits[ni];
@@ -564,7 +564,7 @@ function compileMetricCardUpdateJs(w) {
     lines.push('  if (sparkVal != null && ' + sparkVar + ') {');
     lines.push('    ' + sparkVar + '.push(sparkVal);');
     lines.push('    var colors = STATE_COLORS[state];');
-    lines.push('    ' + sparkVar + '.setColors(colors.stroke, colors.fill);');
+    lines.push('    ' + sparkVar + '.setColors(colors.stroke);');
     lines.push('    ' + sparkVar + '.draw();');
     lines.push('  }');
   }
@@ -643,7 +643,7 @@ function compileNetworkPairUpdateJs(w) {
 // ── Shared Code Templates ─────────────────────────────────────
 
 var SPARKLINE_FACTORY_CODE = [
-  'function createSparkline(canvasId, maxPoints, strokeColor, fillColor) {',
+  'function createSparkline(canvasId, maxPoints, strokeColor) {',
   '  var canvas = document.getElementById(canvasId);',
   '  if (!canvas) return null;',
   '  var ctx = canvas.getContext("2d");',
@@ -659,7 +659,7 @@ var SPARKLINE_FACTORY_CODE = [
   '  resize();',
   '  return {',
   '    push: function(value) { data.push(value); if (data.length > maxPts) data.shift(); },',
-  '    setColors: function(s, f) { strokeColor = s; fillColor = f; },',
+  '    setColors: function(s) { strokeColor = s; },',
   '    draw: function() {',
   '      var w = canvas.width / (window.devicePixelRatio || 1);',
   '      var h = canvas.height / (window.devicePixelRatio || 1);',
@@ -681,11 +681,6 @@ var SPARKLINE_FACTORY_CODE = [
   '      ctx.lineWidth = 1.2;',
   '      ctx.lineJoin = "round";',
   '      ctx.stroke();',
-  '      ctx.lineTo(startX + (data.length - 1) * stepX, h);',
-  '      ctx.lineTo(startX, h);',
-  '      ctx.closePath();',
-  '      ctx.fillStyle = fillColor;',
-  '      ctx.fill();',
   '    },',
   '    resize: resize',
   '  };',
@@ -707,7 +702,7 @@ var NET_SPARKLINE_FACTORY_CODE = [
   '    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);',
   '  }',
   '  resize();',
-  '  function drawArea(arr, strokeCol, fillCol, w, h, max, stepX) {',
+  '  function drawArea(arr, strokeCol, w, h, max, stepX) {',
   '    if (arr.length < 2) return;',
   '    var startX = w - (arr.length - 1) * stepX;',
   '    ctx.beginPath();',
@@ -716,8 +711,6 @@ var NET_SPARKLINE_FACTORY_CODE = [
   '      ctx.lineTo(startX + j * stepX, h - 1 - ((arr[j] / max) * (h - 2)));',
   '    }',
   '    ctx.strokeStyle = strokeCol; ctx.lineWidth = 1; ctx.lineJoin = "round"; ctx.stroke();',
-  '    ctx.lineTo(startX + (arr.length - 1) * stepX, h);',
-  '    ctx.lineTo(startX, h); ctx.closePath(); ctx.fillStyle = fillCol; ctx.fill();',
   '  }',
   '  return {',
   '    push: function(up, down) {',
@@ -734,8 +727,8 @@ var NET_SPARKLINE_FACTORY_CODE = [
   '      for (var k = 0; k < downData.length; k++) { if (downData[k] > max) max = downData[k]; }',
   '      max *= 1.2;',
   '      var stepX = w / (maxPts - 1);',
-  '      drawArea(downData, "rgba(59,130,246,0.7)", "rgba(59,130,246,0.1)", w, h, max, stepX);',
-  '      drawArea(upData, "rgba(34,197,94,0.7)", "rgba(34,197,94,0.1)", w, h, max, stepX);',
+  '      drawArea(downData, "rgba(59,130,246,0.7)", w, h, max, stepX);',
+  '      drawArea(upData, "rgba(34,197,94,0.7)", w, h, max, stepX);',
   '    },',
   '    resize: resize',
   '  };',

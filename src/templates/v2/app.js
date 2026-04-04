@@ -2,7 +2,7 @@
 
 // ── Sparkline Chart (Canvas API) ──────────────────────────────
 
-function createSparkline(canvasId, maxPoints, strokeColor, fillColor) {
+function createSparkline(canvasId, maxPoints, strokeColor) {
   var canvas = document.getElementById(canvasId);
   if (!canvas) return null;
   var ctx = canvas.getContext('2d');
@@ -25,9 +25,8 @@ function createSparkline(canvasId, maxPoints, strokeColor, fillColor) {
       if (data.length > maxPts) data.shift();
     },
 
-    setColors: function(stroke, fill) {
+    setColors: function(stroke) {
       strokeColor = stroke;
-      fillColor = fill;
     },
 
     draw: function() {
@@ -60,12 +59,6 @@ function createSparkline(canvasId, maxPoints, strokeColor, fillColor) {
       ctx.lineWidth = 1.2;
       ctx.lineJoin = 'round';
       ctx.stroke();
-
-      ctx.lineTo(startX + (data.length - 1) * stepX, h);
-      ctx.lineTo(startX, h);
-      ctx.closePath();
-      ctx.fillStyle = fillColor;
-      ctx.fill();
     },
 
     resize: resize,
@@ -91,7 +84,7 @@ function createNetSparkline(canvasId, maxPoints) {
 
   resize();
 
-  function drawArea(dataArr, strokeCol, fillCol, w, h, max, stepX) {
+  function drawArea(dataArr, strokeCol, w, h, max, stepX) {
     if (dataArr.length < 2) return;
     var startX = w - (dataArr.length - 1) * stepX;
     var padBottom = 1;
@@ -105,12 +98,6 @@ function createNetSparkline(canvasId, maxPoints) {
     ctx.lineWidth = 1;
     ctx.lineJoin = 'round';
     ctx.stroke();
-
-    ctx.lineTo(startX + (dataArr.length - 1) * stepX, h);
-    ctx.lineTo(startX, h);
-    ctx.closePath();
-    ctx.fillStyle = fillCol;
-    ctx.fill();
   }
 
   return {
@@ -136,8 +123,8 @@ function createNetSparkline(canvasId, maxPoints) {
       max = max * 1.2;
 
       var stepX = w / (maxPts - 1);
-      drawArea(downData, 'rgba(59,130,246,0.7)', 'rgba(59,130,246,0.1)', w, h, max, stepX);
-      drawArea(upData, 'rgba(34,197,94,0.7)', 'rgba(34,197,94,0.1)', w, h, max, stepX);
+      drawArea(downData, 'rgba(59,130,246,0.7)', w, h, max, stepX);
+      drawArea(upData, 'rgba(34,197,94,0.7)', w, h, max, stepX);
     },
 
     resize: resize
@@ -186,14 +173,10 @@ function applyState(cardId, state) {
 
 var MAX_POINTS = 120;
 
-var cpuSpark = createSparkline('cpu-spark', MAX_POINTS,
-  STATE_COLORS.normal.stroke, STATE_COLORS.normal.fill);
-var gpuSpark = createSparkline('gpu-spark', MAX_POINTS,
-  STATE_COLORS.normal.stroke, STATE_COLORS.normal.fill);
-var memSpark = createSparkline('mem-spark', MAX_POINTS,
-  STATE_COLORS.normal.stroke, STATE_COLORS.normal.fill);
-var diskSpark = createSparkline('disk-spark', MAX_POINTS,
-  STATE_COLORS.normal.stroke, STATE_COLORS.normal.fill);
+var cpuSpark = createSparkline('cpu-spark', MAX_POINTS, STATE_COLORS.normal.stroke);
+var gpuSpark = createSparkline('gpu-spark', MAX_POINTS, STATE_COLORS.normal.stroke);
+var memSpark = createSparkline('mem-spark', MAX_POINTS, STATE_COLORS.normal.stroke);
+var diskSpark = createSparkline('disk-spark', MAX_POINTS, STATE_COLORS.normal.stroke);
 var netSpark = createNetSparkline('net-spark', MAX_POINTS);
 
 
@@ -256,7 +239,7 @@ function updateCpuMetrics(data) {
   if (usage != null && cpuSpark) {
     cpuSpark.push(usage);
     var colors = STATE_COLORS[state];
-    cpuSpark.setColors(colors.stroke, colors.fill);
+    cpuSpark.setColors(colors.stroke);
     cpuSpark.draw();
   }
 }
@@ -285,7 +268,7 @@ function updateGpuMetrics(data) {
   if (usage != null && gpuSpark) {
     gpuSpark.push(usage);
     var colors = STATE_COLORS[state];
-    gpuSpark.setColors(colors.stroke, colors.fill);
+    gpuSpark.setColors(colors.stroke);
     gpuSpark.draw();
   }
 }
@@ -318,7 +301,7 @@ function updateMemoryMetrics(data) {
   if (memSpark) {
     memSpark.push(pct);
     var colors = STATE_COLORS[state];
-    memSpark.setColors(colors.stroke, colors.fill);
+    memSpark.setColors(colors.stroke);
     memSpark.draw();
   }
 }
@@ -351,7 +334,7 @@ function updateDiskMetrics(data) {
   if (diskSpark) {
     diskSpark.push(pct);
     var colors = STATE_COLORS[state];
-    diskSpark.setColors(colors.stroke, colors.fill);
+    diskSpark.setColors(colors.stroke);
     diskSpark.draw();
   }
 }

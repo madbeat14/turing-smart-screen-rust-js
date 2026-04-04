@@ -20,6 +20,8 @@ pub struct TemplateInfo {
     pub display_name: String,
     pub has_manifest: bool,
     pub is_builtin: bool,
+    /// True when a built-in template has been copied to user dir (editable, can be reset).
+    pub is_modified: bool,
 }
 
 /// Returns the directory where user-created templates are stored (next to the exe).
@@ -111,6 +113,7 @@ pub fn list_templates() -> Result<Vec<TemplateInfo>, String> {
                         let name = name.to_string();
                         if validate_template_name(&name).is_ok() {
                             let has_manifest = path.join("manifest.json").exists();
+                            let builtin = is_builtin(&name);
                             let display_name = read_display_name(&path).unwrap_or_else(|| {
                                 format_display_name(&name)
                             });
@@ -118,7 +121,8 @@ pub fn list_templates() -> Result<Vec<TemplateInfo>, String> {
                                 name: name.clone(),
                                 display_name,
                                 has_manifest,
-                                is_builtin: is_builtin(&name),
+                                is_builtin: builtin,
+                                is_modified: builtin, // user-dir copy of a builtin = modified
                             });
                             seen.insert(name);
                         }
@@ -136,6 +140,7 @@ pub fn list_templates() -> Result<Vec<TemplateInfo>, String> {
                 display_name: format_display_name(builtin),
                 has_manifest: false,
                 is_builtin: true,
+                is_modified: false,
             });
         }
     }
@@ -216,13 +221,6 @@ pub struct SaveTemplateArgs {
 #[tauri::command]
 pub fn save_template(args: SaveTemplateArgs) -> Result<(), String> {
     validate_template_name(&args.name)?;
-
-    if is_builtin(&args.name) {
-        return Err(format!(
-            "Cannot overwrite built-in template '{}'. Clone it first.",
-            args.name
-        ));
-    }
 
     // Validate manifest JSON is parseable
     serde_json::from_str::<serde_json::Value>(&args.manifest)
@@ -618,5 +616,103 @@ pub fn inject_custom_template(
     monitor.eval(&js_wrapper).map_err(|e| format!("JS inject failed: {}", e))?;
     info!("[inject_custom_template] JS injected for '{}'", name);
 
+    Ok(())
+}
+
+/// Resolve the path to a built-in template directory, skipping user templates.
+/// Used by `make_builtin_editable` to find the original bundled files.
+fn resolve_builtin_template_dir(name: &str) -> Option<PathBuf> {
+    for candidate in builtin_template_candidates() {
+        let path = candidate.join(name);
+        if path.exists() && path.is_dir() {
+            return Some(path);
+        }
+    }
+    None
+}
+
+/// Copy a built-in template to the user templates directory so it becomes editable.
+/// Generates a manifest.json so the editor can open it.
+#[tauri::command]
+pub fn make_builtin_editable(name: String) -> Result<(), String> {
+    validate_template_name(&name)?;
+
+    if !is_builtin(&name) {
+        return Err(format!("'{}' is not a built-in template", name));
+    }
+
+    let target_dir = user_templates_dir().join(&name);
+    if target_dir.exists() {
+        // Already has a user copy — nothing to do
+        return Ok(());
+    }
+
+    let source_dir = resolve_builtin_template_dir(&name)
+        .ok_or_else(|| format!("Built-in template '{}' not found", name))?;
+
+    // Create target directory
+    std::fs::create_dir_all(&target_dir).map_err(|e| {
+        format!("Failed to create directory: {}", e)
+    })?;
+
+    // Copy all files from bundled source to user dir
+    if let Ok(entries) = std::fs::read_dir(&source_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                if let Some(filename) = path.file_name() {
+                    let dest = target_dir.join(filename);
+                    std::fs::copy(&path, &dest).map_err(|e| {
+                        format!("Failed to copy {}: {}", path.display(), e)
+                    })?;
+                }
+            }
+        }
+    }
+
+    // Generate manifest.json so the template is editable
+    let manifest_path = target_dir.join("manifest.json");
+    if !manifest_path.exists() {
+        let manifest = generate_default_manifest(&name, &name);
+        std::fs::write(&manifest_path, &manifest).map_err(|e| {
+            format!("Failed to write manifest: {}", e)
+        })?;
+    }
+
+    info!("Built-in template '{}' copied to user dir for editing", name);
+    Ok(())
+}
+
+/// Reset a built-in template to its default by deleting the user-dir copy.
+/// The bundled original will be used again automatically.
+#[tauri::command]
+pub fn reset_builtin_template(name: String) -> Result<(), String> {
+    validate_template_name(&name)?;
+
+    if !is_builtin(&name) {
+        return Err(format!("'{}' is not a built-in template", name));
+    }
+
+    let user_dir = user_templates_dir().join(&name);
+    if !user_dir.exists() {
+        // Already at default — nothing to do
+        return Ok(());
+    }
+
+    // Verify path is within templates directory
+    let canonical_dir = user_dir.canonicalize().map_err(|e| format!("Path error: {}", e))?;
+    let canonical_templates = user_templates_dir()
+        .canonicalize()
+        .unwrap_or_else(|_| user_templates_dir());
+    if !canonical_dir.starts_with(&canonical_templates) {
+        return Err("Invalid template path".into());
+    }
+
+    std::fs::remove_dir_all(&user_dir).map_err(|e| {
+        error!("Failed to reset template '{}': {}", name, e);
+        format!("Failed to reset template: {}", e)
+    })?;
+
+    info!("Built-in template '{}' reset to default", name);
     Ok(())
 }

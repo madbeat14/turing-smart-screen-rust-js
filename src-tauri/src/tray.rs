@@ -133,19 +133,23 @@ pub fn open_editor_window(app: &AppHandle) {
         return;
     }
 
+    let saved = crate::window_state::get_window_state("editor".into());
+    let w = saved.get("width").and_then(|v| v.as_f64()).unwrap_or(1100.0);
+    let h = saved.get("height").and_then(|v| v.as_f64()).unwrap_or(750.0);
+
     let builder = tauri::WebviewWindowBuilder::new(
         app,
         "editor",
         tauri::WebviewUrl::App("editor.html".into()),
     )
     .title("Template Editor — Turing Smart Screen")
-    .inner_size(1100.0, 750.0)
+    .inner_size(w, h)
     .min_inner_size(900.0, 600.0)
     .resizable(true)
     .center();
 
     match builder.build() {
-        Ok(_) => info!("Template editor window opened"),
+        Ok(_) => info!("Template editor window opened ({}x{})", w, h),
         Err(e) => log::error!("Failed to open template editor: {}", e),
     }
 }
@@ -156,18 +160,23 @@ fn open_settings_window(app: &AppHandle) {
         return;
     }
 
+    let saved = crate::window_state::get_window_state("settings".into());
+    let w = saved.get("width").and_then(|v| v.as_f64()).unwrap_or(500.0);
+    let h = saved.get("height").and_then(|v| v.as_f64()).unwrap_or(450.0);
+
     let builder = tauri::WebviewWindowBuilder::new(
         app,
         "settings",
         tauri::WebviewUrl::App("settings.html".into()),
     )
     .title("Settings — Turing Smart Screen")
-    .inner_size(500.0, 400.0)
-    .resizable(false)
+    .inner_size(w, h)
+    .min_inner_size(400.0, 300.0)
+    .resizable(true)
     .center();
 
     match builder.build() {
-        Ok(_) => info!("Settings window opened"),
+        Ok(_) => info!("Settings window opened ({}x{})", w, h),
         Err(e) => log::error!("Failed to open settings window: {}", e),
     }
 }
