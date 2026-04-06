@@ -242,8 +242,8 @@ impl LcdDisplay for RevBDisplay {
             }
             Orientation::ReversePortrait | Orientation::ReverseLandscape => {
                 let rotated = Self::rotate_180(rgba, actual_w, actual_h);
-                let rx = display_w - x - actual_w;
-                let ry = display_h - y - actual_h;
+                let rx = display_w.saturating_sub(x).saturating_sub(actual_w);
+                let ry = display_h.saturating_sub(y).saturating_sub(actual_h);
                 (rotated, rx, ry, rx + actual_w - 1, ry + actual_h - 1)
             }
         };

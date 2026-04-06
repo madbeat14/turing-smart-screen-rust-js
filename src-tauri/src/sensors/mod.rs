@@ -49,21 +49,23 @@ pub struct SensorData {
 /// GPU temp, GPU usage, GPU freq, GPU memory.
 pub fn sensor_loop(app_handle: AppHandle, lhm_state: Arc<Mutex<LhmSensorData>>) {
     let mut sys = System::new_all();
+    let mut disks = disk::create_disks();
+    let mut networks = network::create_networks();
 
     // Need an initial refresh + short delay for CPU usage to be meaningful
     sys.refresh_all();
     std::thread::sleep(std::time::Duration::from_millis(500));
 
-    let mut prev_net = network::NetworkSnapshot::capture(&sys);
+    let mut prev_net = network::NetworkSnapshot::capture(&sys, &mut networks);
 
     loop {
         sys.refresh_all();
 
         let cpu_data = cpu::read_cpu(&sys);
         let mem_data = memory::read_memory(&sys);
-        let disk_data = disk::read_disks(&sys);
+        let disk_data = disk::read_disks(&sys, &mut disks);
 
-        let curr_net = network::NetworkSnapshot::capture(&sys);
+        let curr_net = network::NetworkSnapshot::capture(&sys, &mut networks);
         let net_data = network::compute_rates(&prev_net, &curr_net, 0.5);
         prev_net = curr_net;
 

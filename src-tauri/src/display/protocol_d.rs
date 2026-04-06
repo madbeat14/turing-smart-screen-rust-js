@@ -160,7 +160,7 @@ impl LcdDisplay for RevDDisplay {
             }
             Orientation::Landscape | Orientation::ReverseLandscape => {
                 let (rotated, new_w, new_h) = Self::rotate_270(rgba, actual_w, actual_h);
-                let rx = self.display_width - y - actual_h;
+                let rx = self.display_width.saturating_sub(y).saturating_sub(actual_h);
                 let ry = x;
                 (
                     rotated,

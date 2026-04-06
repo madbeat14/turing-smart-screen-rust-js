@@ -12,8 +12,8 @@ pub struct NetworkSnapshot {
 }
 
 impl NetworkSnapshot {
-    pub fn capture(_sys: &System) -> Self {
-        let networks = Networks::new_with_refreshed_list();
+    pub fn capture(_sys: &System, networks: &mut Networks) -> Self {
+        networks.refresh(false);
         let mut total_rx: u64 = 0;
         let mut total_tx: u64 = 0;
 
@@ -27,6 +27,10 @@ impl NetworkSnapshot {
             total_transmitted: total_tx,
         }
     }
+}
+
+pub fn create_networks() -> Networks {
+    Networks::new_with_refreshed_list()
 }
 
 /// Compute upload/download rates in bytes/sec from two snapshots

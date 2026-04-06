@@ -40,7 +40,12 @@
       initWindowState();
     } catch (err) {
       console.error('Editor init failed:', err);
-      document.body.innerHTML = '<div style="padding:20px;color:#ef4444;">Editor failed to initialize: ' + err.message + '</div>';
+      console.error('Editor init error details:', err);
+      var msg = document.createElement('div');
+      msg.style.cssText = 'padding:20px;color:#ef4444;';
+      msg.textContent = 'Editor failed to initialize. Check the developer console for details.';
+      document.body.innerHTML = '';
+      document.body.appendChild(msg);
     }
   }
 
@@ -399,7 +404,7 @@
           WLO: cfg.config.WLO,
           CPU_FAN: cfg.config.CPU_FAN,
           PING: cfg.config.PING,
-          WEATHER_API_KEY: cfg.config.WEATHER_API_KEY || '',
+          WEATHER_API_KEY: cfg.config.WEATHER_API_KEY,
           WEATHER_LATITUDE: cfg.config.WEATHER_LATITUDE,
           WEATHER_LONGITUDE: cfg.config.WEATHER_LONGITUDE,
           WEATHER_UNITS: cfg.config.WEATHER_UNITS,
@@ -533,6 +538,7 @@
   function undo() {
     if (undoStack.length === 0) return;
     redoStack.push(JSON.stringify(manifest));
+    if (redoStack.length > MAX_UNDO) redoStack.shift();
     manifest = JSON.parse(undoStack.pop());
     syncUIFromManifest();
   }
@@ -675,7 +681,7 @@
     document.getElementById('btn-save').addEventListener('click', saveTemplate);
 
     document.getElementById('btn-preview').addEventListener('click', function() {
-      if (this.dataset.previewing) {
+      if (this.dataset.previewing === 'true') {
         hidePreview();
       } else {
         showPreview();

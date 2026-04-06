@@ -338,10 +338,11 @@ impl LcdDisplay for RevCDisplay {
             let mut img_raw = Vec::new();
 
             for row in 0..h as usize {
+                // Row-major address: (y + row) * width + x
                 let addr = if self.sub_revision == RevCSubRevision::Rev8Inch {
-                    ((x as u32 + row as u32) * self.display_width as u32) + y as u32
+                    ((y as u32 + row as u32) * self.display_width as u32) + x as u32
                 } else {
-                    ((x as u32 + row as u32) * self.display_height as u32) + y as u32
+                    ((y as u32 + row as u32) * self.display_height as u32) + x as u32
                 };
 
                 // 3-byte big-endian address

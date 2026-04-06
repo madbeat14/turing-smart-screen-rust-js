@@ -16,7 +16,7 @@ mod window_state;
 use display::diff::FrameDiffer;
 use display::rgb565::rgba_to_rgb565_le;
 use display::{Orientation, create_display};
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use serde::Serialize;
 use std::sync::mpsc;
 use tauri::Manager;
@@ -27,9 +27,14 @@ pub struct RestartSender(pub mpsc::Sender<()>);
 /// Log a message from the webview to the Rust logger
 #[tauri::command]
 fn webview_log(level: String, msg: String) {
+    if msg.len() > 4096 {
+        warn!("[WEBVIEW] Message truncated (was {} bytes)", msg.len());
+        return;
+    }
     match level.as_str() {
         "error" => error!("[WEBVIEW] {}", msg),
         "warn" => warn!("[WEBVIEW] {}", msg),
+        "debug" => debug!("[WEBVIEW] {}", msg),
         _ => info!("[WEBVIEW] {}", msg),
     }
 }

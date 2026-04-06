@@ -108,6 +108,8 @@ function initTauriListener(attempt) {
   if (window.__TAURI__ && window.__TAURI__.event) {
     window.__TAURI__.event.listen('sensor-update', function(event) {
       updateUI(event.payload);
+    }).then(function(unsub) {
+      window.addEventListener('beforeunload', unsub);
     });
   } else if (attempt < MAX_ATTEMPTS) {
     setTimeout(function() { initTauriListener(attempt + 1); }, 100);
@@ -115,7 +117,8 @@ function initTauriListener(attempt) {
 }
 
 updateClock();
-setInterval(updateClock, 1000);
+var clockInterval = setInterval(updateClock, 1000);
+window.addEventListener('beforeunload', function() { clearInterval(clockInterval); });
 
 if (document.readyState === 'complete') {
   initTauriListener();

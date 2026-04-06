@@ -287,11 +287,12 @@ function updateMemoryMetrics(data) {
     var usedVal = formatBytes(data.ram_used);
     var totalVal = formatBytes(data.ram_total);
     var unit = formatBytesUnit(data.ram_total);
-    memText.innerHTML =
-      '<span class="value">' + usedVal + '</span>' +
-      '<span class="unit"> / </span>' +
-      '<span class="value">' + totalVal + '</span>' +
-      '<span class="unit">' + unit + '</span>';
+    var spans = memText.querySelectorAll('span');
+    if (spans.length >= 4) {
+      spans[0].textContent = usedVal;
+      spans[2].textContent = totalVal;
+      spans[3].textContent = unit;
+    }
   }
 
   setText('v2-mem-usage-label', pct.toFixed(0) + '%');
@@ -320,11 +321,12 @@ function updateDiskMetrics(data) {
     var usedVal = formatBytes(data.disk_used);
     var totalVal = formatBytes(data.disk_total);
     var unit = formatBytesUnit(data.disk_total);
-    diskText.innerHTML =
-      '<span class="value">' + usedVal + '</span>' +
-      '<span class="unit"> / </span>' +
-      '<span class="value">' + totalVal + '</span>' +
-      '<span class="unit">' + unit + '</span>';
+    var spans = diskText.querySelectorAll('span');
+    if (spans.length >= 4) {
+      spans[0].textContent = usedVal;
+      spans[2].textContent = totalVal;
+      spans[3].textContent = unit;
+    }
   }
 
   setText('v2-disk-usage-label', pct.toFixed(0) + '%');
@@ -400,6 +402,8 @@ function initTauriListener(attempt) {
   if (window.__TAURI__ && window.__TAURI__.event) {
     window.__TAURI__.event.listen('sensor-update', function(event) {
       updateUI(event.payload);
+    }).then(function(unsub) {
+      window.addEventListener('beforeunload', unsub);
     });
   } else if (attempt < MAX_ATTEMPTS) {
     setTimeout(function() { initTauriListener(attempt + 1); }, 100);
@@ -407,7 +411,8 @@ function initTauriListener(attempt) {
 }
 
 updateClock();
-setInterval(updateClock, 1000);
+var clockInterval = setInterval(updateClock, 1000);
+window.addEventListener('beforeunload', function() { clearInterval(clockInterval); });
 
 if (document.readyState === 'complete') {
   initTauriListener();

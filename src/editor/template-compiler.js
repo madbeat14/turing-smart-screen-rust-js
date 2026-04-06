@@ -519,6 +519,9 @@ function compileMetricCardUpdateJs(w) {
   if (progressField === 'disk_used') progressField = 'disk_usage';
   if (sparklineField === 'ram_used') sparklineField = 'ram_usage';
   if (sparklineField === 'disk_used') sparklineField = 'disk_usage';
+  // Validate optional fields only if present
+  if (progressField) assertValidField(progressField);
+  if (sparklineField) assertValidField(sparklineField);
 
   function getFormatExpr(fieldVar, fieldName) {
     if (fieldName.indexOf('net_') !== -1) return 'formatRate(' + fieldVar + ').value';
@@ -527,25 +530,27 @@ function compileMetricCardUpdateJs(w) {
   }
 
   // Primary value
-  lines.push('  var pVal = data.' + c.primaryField + ';');
-  lines.push('  if (pVal != null) setValueInElement("primary-' + w.id + '", ' + getFormatExpr('pVal', c.primaryField) + ');');
+  var primaryField = assertValidField(c.primaryField);
+  lines.push('  var pVal = data.' + primaryField + ';');
+  lines.push('  if (pVal != null) setValueInElement("primary-' + w.id + '", ' + getFormatExpr('pVal', primaryField) + ');');
 
   // Secondary fields
   if (c.secondaryFields) {
     for (var i = 0; i < c.secondaryFields.length; i++) {
       var sf = c.secondaryFields[i];
-      lines.push('  var secVal' + i + ' = data.' + sf.field + ';');
-      lines.push('  if (secVal' + i + ' != null) setText("sec-' + i + '-' + w.id + '", ' + getFormatExpr('secVal' + i, sf.field) + ');');
+      var sfField = assertValidField(sf.field);
+      lines.push('  var secVal' + i + ' = data.' + sfField + ';');
+      lines.push('  if (secVal' + i + ' != null) setText("sec-' + i + '-' + w.id + '", ' + getFormatExpr('secVal' + i, sfField) + ');');
     }
   }
 
   // State
-  var threshField = c.primaryField;
+  var threshField = primaryField;
   var threshFn = 'getLoadState';
   if (threshField.indexOf('temp') !== -1) threshFn = 'getTemperatureState';
   if (threshField.indexOf('disk') !== -1) threshFn = 'getDiskState';
 
-  lines.push('  var state = ' + threshFn + '(data.' + (progressField || c.primaryField) + ');');
+  lines.push('  var state = ' + threshFn + '(data.' + (progressField || primaryField) + ');');
   lines.push('  applyState("card-' + w.id + '", state);');
 
   // Progress bar
@@ -575,7 +580,7 @@ function compileMetricCardUpdateJs(w) {
 function compileValueDisplayUpdateJs(w) {
   var c = w.config;
   var lines = [];
-  lines.push('  var val = data.' + c.field + ';');
+  lines.push('  var val = data.' + assertValidField(c.field) + ';');
   if (c.formatAsBytes) {
     lines.push('  if (val != null) setValueInElement("val-' + w.id + '", formatBytes(val));');
   } else {
@@ -587,7 +592,7 @@ function compileValueDisplayUpdateJs(w) {
 function compileProgressBarUpdateJs(w) {
   var c = w.config;
   var lines = [];
-  lines.push('  var val = data.' + c.field + ';');
+  lines.push('  var val = data.' + assertValidField(c.field) + ';');
   lines.push('  if (val != null) {');
   lines.push('    var bar = document.getElementById("bar-' + w.id + '");');
   lines.push('    if (bar) bar.style.width = val.toFixed(0) + "%";');
@@ -601,7 +606,7 @@ function compileProgressBarUpdateJs(w) {
 function compileSparklineUpdateJs(w) {
   var sparkVar = 'spark_' + sanitizeId(w.id);
   var lines = [];
-  lines.push('  var val = data.' + w.config.field + ';');
+  lines.push('  var val = data.' + assertValidField(w.config.field) + ';');
   lines.push('  if (val != null && ' + sparkVar + ') {');
   lines.push('    ' + sparkVar + '.push(val);');
   lines.push('    ' + sparkVar + '.draw();');
@@ -771,7 +776,8 @@ var TAURI_LISTENER_CODE = [
   'function initTauriListener(attempt) {',
   '  if (attempt === undefined) attempt = 0;',
   '  if (window.__TAURI__ && window.__TAURI__.event) {',
-  '    window.__TAURI__.event.listen("sensor-update", function(event) { updateUI(event.payload); });',
+  '    window.__TAURI__.event.listen("sensor-update", function(event) { updateUI(event.payload); })',
+  '      .then(function(unsub) { window.addEventListener("beforeunload", unsub); });',
   '  } else if (attempt < 50) {',
   '    setTimeout(function() { initTauriListener(attempt + 1); }, 100);',
   '  }',
@@ -784,16 +790,26 @@ var TAURI_LISTENER_CODE = [
 // ── Utility Functions ─────────────────────────────────────────
 
 function escHtml(str) {
-  if (!str) return '';
+  if (str == null) return '';
   return String(str)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function sanitizeId(id) {
   return id.replace(/[^a-zA-Z0-9_]/g, '_');
+}
+
+// Validate a sensor field name against the known allowlist to prevent code injection
+// in generated JS. Returns the field name if valid, throws otherwise.
+function assertValidField(name) {
+  if (!name || typeof name !== 'string') throw new Error('Missing field name');
+  var valid = SENSOR_FIELDS.some(function(sf) { return sf.value === name; });
+  if (!valid) throw new Error('Invalid sensor field name: ' + name);
+  return name;
 }
 
 function hexToRgba(hex, alpha) {

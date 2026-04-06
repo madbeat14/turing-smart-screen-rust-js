@@ -190,12 +190,13 @@ impl SerialConnection {
         Ok(())
     }
 
-    /// Keep trying to reopen the serial port until successful.
+    /// Keep trying to reopen the serial port until successful or max retries exceeded.
     /// This handles USB cable disconnections — the port won't be available until
     /// the cable is plugged back in, so we retry every 2 seconds.
     fn reconnect_with_retry(&mut self) -> Result<()> {
+        const MAX_RECONNECT_ATTEMPTS: u32 = 150; // ~5 minutes
         warn!("Attempting to reconnect to serial port {}...", self.port_name);
-        loop {
+        for attempt in 0..MAX_RECONNECT_ATTEMPTS {
             std::thread::sleep(Duration::from_secs(2));
 
             match Self::open_port(&self.port_name) {
@@ -208,12 +209,17 @@ impl SerialConnection {
                 }
                 Err(e) => {
                     debug!(
-                        "Reconnect attempt to {} failed: {}. Retrying in 2s...",
-                        self.port_name, e
+                        "Reconnect attempt {}/{} to {} failed: {}. Retrying in 2s...",
+                        attempt + 1, MAX_RECONNECT_ATTEMPTS, self.port_name, e
                     );
                 }
             }
         }
+        Err(anyhow::anyhow!(
+            "Failed to reconnect to {} after {} attempts",
+            self.port_name,
+            MAX_RECONNECT_ATTEMPTS
+        ))
     }
 
     /// Check if the serial connection was recently reconnected (e.g. after cable unplug/replug).

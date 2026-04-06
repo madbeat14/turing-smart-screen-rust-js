@@ -5,8 +5,12 @@ pub struct DiskData {
     pub total: Option<f64>,
 }
 
-pub fn read_disks(_sys: &System) -> DiskData {
-    let disks = Disks::new_with_refreshed_list();
+pub fn create_disks() -> Disks {
+    Disks::new_with_refreshed_list()
+}
+
+pub fn read_disks(_sys: &System, disks: &mut Disks) -> DiskData {
+    disks.refresh(false);
 
     let mut total_space: u64 = 0;
     let mut available_space: u64 = 0;

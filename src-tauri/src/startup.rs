@@ -16,6 +16,14 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 const TASK_NAME: &str = "TuringSmartScreenStartup";
 
+fn xml_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
 const TASK_XML_TEMPLATE: &str = r#"<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
@@ -101,8 +109,8 @@ fn create_startup_task() -> Result<(), String> {
         let author = env::var("USERNAME").unwrap_or_else(|_| "User".to_string());
 
         let xml_content = TASK_XML_TEMPLATE
-            .replace("{AUTHOR}", &author)
-            .replace("{EXE_PATH}", &exe_str);
+            .replace("{AUTHOR}", &xml_escape(&author))
+            .replace("{EXE_PATH}", &xml_escape(&exe_str));
 
         // Use a unique temp filename to prevent TOCTOU race
         let unique_name = format!(

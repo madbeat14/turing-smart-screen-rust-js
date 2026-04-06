@@ -108,7 +108,7 @@ fn launch_and_read(service_exe: std::path::PathBuf, shared: Arc<Mutex<LhmSensorD
 
                 // Spawn stderr logger thread
                 if let Some(stderr) = stderr {
-                    std::thread::Builder::new()
+                    if let Err(e) = std::thread::Builder::new()
                         .name("lhm-stderr".into())
                         .spawn(move || {
                             let reader = std::io::BufReader::new(stderr);
@@ -118,18 +118,22 @@ fn launch_and_read(service_exe: std::path::PathBuf, shared: Arc<Mutex<LhmSensorD
                                 }
                             }
                         })
-                        .ok();
+                    {
+                        warn!("Failed to spawn LHM stderr reader thread: {}", e);
+                    }
                 }
 
                 // Spawn stdout reader thread for sensor data
                 if let Some(stdout) = stdout {
                     let reader_shared = shared.clone();
-                    std::thread::Builder::new()
+                    if let Err(e) = std::thread::Builder::new()
                         .name("lhm-reader".into())
                         .spawn(move || {
                             read_sensor_output(stdout, reader_shared);
                         })
-                        .ok();
+                    {
+                        error!("Failed to spawn LHM reader thread: {}", e);
+                    }
                 }
             }
             Err(e) => {
@@ -207,13 +211,15 @@ fn is_lhm_running() -> bool {
 
 /// Kill the LHM service. Called on app exit.
 pub fn stop_lhm() {
-    if let Ok(mut guard) = LHM_PROCESS.lock() {
-        if let Some(mut child) = guard.take() {
-            info!("Stopping LHM service (PID: {})", child.id());
-            let _ = child.kill();
-            let _ = child.wait();
-            return;
-        }
+    let mut guard = match LHM_PROCESS.lock() {
+        Ok(g) => g,
+        Err(e) => e.into_inner(), // recover from poisoned mutex
+    };
+    if let Some(mut child) = guard.take() {
+        info!("Stopping LHM service (PID: {})", child.id());
+        let _ = child.kill();
+        let _ = child.wait();
+        return;
     }
 
     #[cfg(target_os = "windows")]

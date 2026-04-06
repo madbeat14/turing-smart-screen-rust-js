@@ -105,8 +105,9 @@ pub fn list_templates() -> Result<Vec<TemplateInfo>, String> {
     // Scan user templates directory
     let user_dir = user_templates_dir();
     if user_dir.exists() {
-        if let Ok(entries) = std::fs::read_dir(&user_dir) {
-            for entry in entries.flatten() {
+        match std::fs::read_dir(&user_dir) {
+            Err(e) => error!("Failed to read user templates directory {:?}: {}", user_dir, e),
+            Ok(entries) => for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_dir() {
                     if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
