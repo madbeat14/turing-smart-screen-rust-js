@@ -1,13 +1,12 @@
 /// Rev A protocol implementation for Turing 3.5" and UsbMonitor 3.5"/5"/7" displays.
 ///
 /// Ports `library/lcd/lcd_comm_rev_a.py` from the Python implementation.
-
 use anyhow::{Context, Result};
 use log::{debug, info};
 
 use super::rgb565::{chunked, rgba_to_rgb565_le};
 use super::serial::SerialConnection;
-use super::{LcdDisplay, Orientation, SubRevision, dimensions_for_sub_revision};
+use super::{dimensions_for_sub_revision, LcdDisplay, Orientation, SubRevision};
 
 /// Rev A command set
 #[derive(Debug, Clone, Copy)]
@@ -113,7 +112,10 @@ impl RevADisplay {
         } else if response == [0x03; 6] {
             self.sub_revision = SubRevision::UsbMonitor7;
         } else {
-            debug!("Unknown HELLO response: {:?}, assuming Turing 3.5\"", response);
+            debug!(
+                "Unknown HELLO response: {:?}, assuming Turing 3.5\"",
+                response
+            );
             self.sub_revision = SubRevision::Turing3_5;
         }
 
@@ -160,7 +162,7 @@ impl LcdDisplay for RevADisplay {
     fn set_brightness(&mut self, level: u8) -> Result<()> {
         let level = level.min(100);
         // Rev A brightness is inverted: 0 = brightest, 255 = darkest
-        let level_absolute = 255 - ((level as u16 * 255) / 100) as u16;
+        let level_absolute = 255 - ((level as u16 * 255) / 100);
         self.send_command(Command::SetBrightness, level_absolute, 0, 0, 0)
     }
 
@@ -183,14 +185,7 @@ impl LcdDisplay for RevADisplay {
         self.serial.write_data(&packet)
     }
 
-    fn display_rgba_image(
-        &mut self,
-        rgba: &[u8],
-        x: u16,
-        y: u16,
-        w: u16,
-        h: u16,
-    ) -> Result<()> {
+    fn display_rgba_image(&mut self, rgba: &[u8], x: u16, y: u16, w: u16, h: u16) -> Result<()> {
         let display_w = self.get_width();
         let display_h = self.get_height();
 

@@ -4,7 +4,6 @@
 /// and cloning templates. Custom templates live next to the executable
 /// in a `templates/` directory. Built-in templates (v1, v2) are
 /// bundled with the app and are read-only.
-
 use log::{error, info};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -106,26 +105,30 @@ pub fn list_templates() -> Result<Vec<TemplateInfo>, String> {
     let user_dir = user_templates_dir();
     if user_dir.exists() {
         match std::fs::read_dir(&user_dir) {
-            Err(e) => error!("Failed to read user templates directory {:?}: {}", user_dir, e),
-            Ok(entries) => for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                        let name = name.to_string();
-                        if validate_template_name(&name).is_ok() {
-                            let has_manifest = path.join("manifest.json").exists();
-                            let builtin = is_builtin(&name);
-                            let display_name = read_display_name(&path).unwrap_or_else(|| {
-                                format_display_name(&name)
-                            });
-                            templates.push(TemplateInfo {
-                                name: name.clone(),
-                                display_name,
-                                has_manifest,
-                                is_builtin: builtin,
-                                is_modified: builtin, // user-dir copy of a builtin = modified
-                            });
-                            seen.insert(name);
+            Err(e) => error!(
+                "Failed to read user templates directory {:?}: {}",
+                user_dir, e
+            ),
+            Ok(entries) => {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                            let name = name.to_string();
+                            if validate_template_name(&name).is_ok() {
+                                let has_manifest = path.join("manifest.json").exists();
+                                let builtin = is_builtin(&name);
+                                let display_name = read_display_name(&path)
+                                    .unwrap_or_else(|| format_display_name(&name));
+                                templates.push(TemplateInfo {
+                                    name: name.clone(),
+                                    display_name,
+                                    has_manifest,
+                                    is_builtin: builtin,
+                                    is_modified: builtin, // user-dir copy of a builtin = modified
+                                });
+                                seen.insert(name);
+                            }
                         }
                     }
                 }
@@ -147,11 +150,7 @@ pub fn list_templates() -> Result<Vec<TemplateInfo>, String> {
     }
 
     // Sort: built-in first, then alphabetical
-    templates.sort_by(|a, b| {
-        b.is_builtin
-            .cmp(&a.is_builtin)
-            .then(a.name.cmp(&b.name))
-    });
+    templates.sort_by(|a, b| b.is_builtin.cmp(&a.is_builtin).then(a.name.cmp(&b.name)));
 
     Ok(templates)
 }
@@ -174,7 +173,7 @@ fn read_display_name(template_dir: &std::path::Path) -> Option<String> {
 
 /// Format a template name into a display name (e.g., "my-template" -> "My Template").
 fn format_display_name(name: &str) -> String {
-    name.split(|c: char| c == '-' || c == '_')
+    name.split(['-', '_'])
         .map(|word| {
             let mut chars = word.chars();
             match chars.next() {
@@ -194,12 +193,15 @@ fn format_display_name(name: &str) -> String {
 pub fn read_template_manifest(name: String) -> Result<String, String> {
     validate_template_name(&name)?;
 
-    let dir = resolve_template_dir(&name)
-        .ok_or_else(|| format!("Template '{}' not found", name))?;
+    let dir =
+        resolve_template_dir(&name).ok_or_else(|| format!("Template '{}' not found", name))?;
 
     let manifest_path = dir.join("manifest.json");
     if !manifest_path.exists() {
-        return Err(format!("Template '{}' has no manifest (not editable)", name));
+        return Err(format!(
+            "Template '{}' has no manifest (not editable)",
+            name
+        ));
     }
 
     std::fs::read_to_string(&manifest_path).map_err(|e| {
@@ -223,6 +225,30 @@ pub struct SaveTemplateArgs {
 pub fn save_template(args: SaveTemplateArgs) -> Result<(), String> {
     validate_template_name(&args.name)?;
 
+    const MAX_FILE_SIZE: usize = 1024 * 1024; // 1 MB per file
+    const MAX_MANIFEST_SIZE: usize = 65536; // 64 KB for manifest
+    if args.manifest.len() > MAX_MANIFEST_SIZE {
+        return Err(format!(
+            "manifest.json too large ({} bytes, max {})",
+            args.manifest.len(),
+            MAX_MANIFEST_SIZE
+        ));
+    }
+    for (name, content) in [
+        ("template.html", &args.html),
+        ("style.css", &args.css),
+        ("app.js", &args.js),
+    ] {
+        if content.len() > MAX_FILE_SIZE {
+            return Err(format!(
+                "{} too large ({} bytes, max {})",
+                name,
+                content.len(),
+                MAX_FILE_SIZE
+            ));
+        }
+    }
+
     // Validate manifest JSON is parseable
     serde_json::from_str::<serde_json::Value>(&args.manifest)
         .map_err(|e| format!("Invalid manifest JSON: {}", e))?;
@@ -236,10 +262,12 @@ pub fn save_template(args: SaveTemplateArgs) -> Result<(), String> {
     })?;
 
     // Verify the resolved path is within the templates directory (path traversal prevention)
-    let canonical_dir = dir.canonicalize().unwrap_or_else(|_| dir.clone());
+    let canonical_dir = dir
+        .canonicalize()
+        .map_err(|e| format!("Failed to resolve template path: {}", e))?;
     let canonical_templates = user_templates_dir()
         .canonicalize()
-        .unwrap_or_else(|_| user_templates_dir());
+        .map_err(|e| format!("Failed to resolve templates base: {}", e))?;
     if !canonical_dir.starts_with(&canonical_templates) {
         return Err("Invalid template path".into());
     }
@@ -262,7 +290,12 @@ pub fn save_template(args: SaveTemplateArgs) -> Result<(), String> {
         })?;
 
         std::fs::rename(&tmp, &target).map_err(|e| {
-            error!("Failed to rename {} -> {}: {}", tmp.display(), target.display(), e);
+            error!(
+                "Failed to rename {} -> {}: {}",
+                tmp.display(),
+                target.display(),
+                e
+            );
             // Clean up temp file on failure
             let _ = std::fs::remove_file(&tmp);
             format!("Failed to save {}: {}", filename, e)
@@ -288,10 +321,12 @@ pub fn delete_template(name: String) -> Result<(), String> {
     }
 
     // Verify path is within templates directory
-    let canonical_dir = dir.canonicalize().map_err(|e| format!("Path error: {}", e))?;
+    let canonical_dir = dir
+        .canonicalize()
+        .map_err(|e| format!("Failed to resolve template path: {}", e))?;
     let canonical_templates = user_templates_dir()
         .canonicalize()
-        .unwrap_or_else(|_| user_templates_dir());
+        .map_err(|e| format!("Failed to resolve templates base: {}", e))?;
     if !canonical_dir.starts_with(&canonical_templates) {
         return Err("Invalid template path".into());
     }
@@ -324,9 +359,8 @@ pub fn clone_template(source: String, target: String) -> Result<(), String> {
     }
 
     // Create target directory
-    std::fs::create_dir_all(&target_dir).map_err(|e| {
-        format!("Failed to create directory: {}", e)
-    })?;
+    std::fs::create_dir_all(&target_dir)
+        .map_err(|e| format!("Failed to create directory: {}", e))?;
 
     // Copy all files from source to target
     if let Ok(entries) = std::fs::read_dir(&source_dir) {
@@ -335,9 +369,8 @@ pub fn clone_template(source: String, target: String) -> Result<(), String> {
             if path.is_file() {
                 if let Some(filename) = path.file_name() {
                     let dest = target_dir.join(filename);
-                    std::fs::copy(&path, &dest).map_err(|e| {
-                        format!("Failed to copy {}: {}", path.display(), e)
-                    })?;
+                    std::fs::copy(&path, &dest)
+                        .map_err(|e| format!("Failed to copy {}: {}", path.display(), e))?;
                 }
             }
         }
@@ -348,10 +381,12 @@ pub fn clone_template(source: String, target: String) -> Result<(), String> {
     let manifest_path = target_dir.join("manifest.json");
     if !manifest_path.exists() {
         let default_manifest = generate_default_manifest(&source, &target);
-        std::fs::write(&manifest_path, &default_manifest).map_err(|e| {
-            format!("Failed to write manifest: {}", e)
-        })?;
-        info!("Generated default manifest for cloned template '{}'", target);
+        std::fs::write(&manifest_path, &default_manifest)
+            .map_err(|e| format!("Failed to write manifest: {}", e))?;
+        info!(
+            "Generated default manifest for cloned template '{}'",
+            target
+        );
     }
 
     info!("Template '{}' cloned to '{}'", source, target);
@@ -506,8 +541,8 @@ pub struct TemplateFiles {
 pub fn read_template_files(name: String) -> Result<TemplateFiles, String> {
     validate_template_name(&name)?;
 
-    let dir = resolve_template_dir(&name)
-        .ok_or_else(|| format!("Template '{}' not found", name))?;
+    let dir =
+        resolve_template_dir(&name).ok_or_else(|| format!("Template '{}' not found", name))?;
 
     let read_file = |filename: &str| -> Result<String, String> {
         let path = dir.join(filename);
@@ -536,8 +571,8 @@ pub struct TemplatePaths {
 #[tauri::command]
 pub fn get_template_paths(name: String) -> Result<TemplatePaths, String> {
     validate_template_name(&name)?;
-    let dir = resolve_template_dir(&name)
-        .ok_or_else(|| format!("Template '{}' not found", name))?;
+    let dir =
+        resolve_template_dir(&name).ok_or_else(|| format!("Template '{}' not found", name))?;
 
     let css_path = dir.join("style.css");
     let js_path = dir.join("app.js");
@@ -563,13 +598,10 @@ pub fn get_template_paths(name: String) -> Result<TemplatePaths, String> {
 /// Note: <style> elements don't work because Tauri v2 replaces 'unsafe-inline'
 /// with nonce-based CSP, blocking any <style> without the correct nonce.
 #[tauri::command]
-pub fn inject_custom_template(
-    name: String,
-    app: tauri::AppHandle,
-) -> Result<(), String> {
+pub fn inject_custom_template(name: String, app: tauri::AppHandle) -> Result<(), String> {
     validate_template_name(&name)?;
-    let dir = resolve_template_dir(&name)
-        .ok_or_else(|| format!("Template '{}' not found", name))?;
+    let dir =
+        resolve_template_dir(&name).ok_or_else(|| format!("Template '{}' not found", name))?;
 
     let css = std::fs::read_to_string(dir.join("style.css"))
         .map_err(|e| format!("Failed to read style.css: {}", e))?;
@@ -597,10 +629,17 @@ pub fn inject_custom_template(
         }})();"#,
         css_escaped
     );
-    monitor.eval(&css_js).map_err(|e| format!("CSS inject failed: {}", e))?;
+    monitor
+        .eval(&css_js)
+        .map_err(|e| format!("CSS inject failed: {}", e))?;
     info!("[inject_custom_template] CSS injected for '{}'", name);
 
-    // Inject JS: execute the template's app.js directly via eval
+    // Inject JS: execute the template's app.js directly via eval.
+    // THREAT MODEL: app.js is executed with full Tauri API access (same trust level as the core
+    // app). Templates are self-authored by the local user — they are NOT sandboxed. Do NOT load
+    // templates from untrusted external sources without first auditing the JS content. If future
+    // versions support importing third-party templates, this code path must be isolated in a
+    // restricted webview that does not expose the Tauri command API.
     let js_wrapper = format!(
         r#"(function() {{
             var old = document.getElementById('template-js');
@@ -614,7 +653,9 @@ pub fn inject_custom_template(
         "#,
         js
     );
-    monitor.eval(&js_wrapper).map_err(|e| format!("JS inject failed: {}", e))?;
+    monitor
+        .eval(&js_wrapper)
+        .map_err(|e| format!("JS inject failed: {}", e))?;
     info!("[inject_custom_template] JS injected for '{}'", name);
 
     Ok(())
@@ -652,9 +693,8 @@ pub fn make_builtin_editable(name: String) -> Result<(), String> {
         .ok_or_else(|| format!("Built-in template '{}' not found", name))?;
 
     // Create target directory
-    std::fs::create_dir_all(&target_dir).map_err(|e| {
-        format!("Failed to create directory: {}", e)
-    })?;
+    std::fs::create_dir_all(&target_dir)
+        .map_err(|e| format!("Failed to create directory: {}", e))?;
 
     // Copy all files from bundled source to user dir
     if let Ok(entries) = std::fs::read_dir(&source_dir) {
@@ -663,9 +703,8 @@ pub fn make_builtin_editable(name: String) -> Result<(), String> {
             if path.is_file() {
                 if let Some(filename) = path.file_name() {
                     let dest = target_dir.join(filename);
-                    std::fs::copy(&path, &dest).map_err(|e| {
-                        format!("Failed to copy {}: {}", path.display(), e)
-                    })?;
+                    std::fs::copy(&path, &dest)
+                        .map_err(|e| format!("Failed to copy {}: {}", path.display(), e))?;
                 }
             }
         }
@@ -675,12 +714,14 @@ pub fn make_builtin_editable(name: String) -> Result<(), String> {
     let manifest_path = target_dir.join("manifest.json");
     if !manifest_path.exists() {
         let manifest = generate_default_manifest(&name, &name);
-        std::fs::write(&manifest_path, &manifest).map_err(|e| {
-            format!("Failed to write manifest: {}", e)
-        })?;
+        std::fs::write(&manifest_path, &manifest)
+            .map_err(|e| format!("Failed to write manifest: {}", e))?;
     }
 
-    info!("Built-in template '{}' copied to user dir for editing", name);
+    info!(
+        "Built-in template '{}' copied to user dir for editing",
+        name
+    );
     Ok(())
 }
 
@@ -701,10 +742,12 @@ pub fn reset_builtin_template(name: String) -> Result<(), String> {
     }
 
     // Verify path is within templates directory
-    let canonical_dir = user_dir.canonicalize().map_err(|e| format!("Path error: {}", e))?;
+    let canonical_dir = user_dir
+        .canonicalize()
+        .map_err(|e| format!("Failed to resolve template path: {}", e))?;
     let canonical_templates = user_templates_dir()
         .canonicalize()
-        .unwrap_or_else(|_| user_templates_dir());
+        .map_err(|e| format!("Failed to resolve templates base: {}", e))?;
     if !canonical_dir.starts_with(&canonical_templates) {
         return Err("Invalid template path".into());
     }

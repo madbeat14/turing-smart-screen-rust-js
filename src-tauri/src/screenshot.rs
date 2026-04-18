@@ -9,9 +9,8 @@
 ///
 /// This works even when the window is off-screen (positioned at -9999,-9999)
 /// because PrintWindow asks the window to paint itself, not a screen capture.
-
 use anyhow::{anyhow, Result};
-use image::{ImageBuffer, Rgba, imageops::FilterType};
+use image::{imageops::FilterType, ImageBuffer, Rgba};
 
 #[cfg(target_os = "windows")]
 use std::mem;
@@ -36,21 +35,17 @@ pub fn capture_webview_screenshot(
 
 /// Win32 screenshot: capture client area only (no window chrome).
 #[cfg(target_os = "windows")]
-fn capture_win32(
-    window: &tauri::WebviewWindow,
-    target_w: u32,
-    target_h: u32,
-) -> Result<Vec<u8>> {
+fn capture_win32(window: &tauri::WebviewWindow, target_w: u32, target_h: u32) -> Result<Vec<u8>> {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::Graphics::Gdi::{
-        CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject,
-        GetDIBits, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
-        GetDC, ReleaseDC,
+        CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC, GetDIBits,
+        ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
     };
     use windows::Win32::Storage::Xps::{PrintWindow, PRINT_WINDOW_FLAGS};
     use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
 
-    let raw_hwnd = window.hwnd()
+    let raw_hwnd = window
+        .hwnd()
         .map_err(|e| anyhow!("Failed to get HWND: {}", e))?;
     let hwnd = HWND(raw_hwnd.0 as *mut _);
 
@@ -70,7 +65,11 @@ fn capture_win32(
         let win_h = (client_rect.bottom - client_rect.top) as u32;
 
         if win_w == 0 || win_h == 0 {
-            return Err(anyhow!("Window has zero client dimensions ({}x{})", win_w, win_h));
+            return Err(anyhow!(
+                "Window has zero client dimensions ({}x{})",
+                win_w,
+                win_h
+            ));
         }
 
         let hdc_window = GetDC(Some(hwnd));
@@ -112,7 +111,7 @@ fn capture_win32(
                 biHeight: -(win_h as i32), // top-down
                 biPlanes: 1,
                 biBitCount: 32,
-                biCompression: BI_RGB.0 as u32,
+                biCompression: BI_RGB.0,
                 ..mem::zeroed()
             },
             ..mem::zeroed()

@@ -53,16 +53,36 @@ pub struct DisplayConfig {
     pub com_port: String,
 }
 
-fn default_auto() -> String { "AUTO".to_string() }
-fn default_theme() -> String { "v2".to_string() }
-fn default_ping() -> String { "8.8.8.8".to_string() }
-fn default_latitude() -> f64 { 0.0 }
-fn default_longitude() -> f64 { 0.0 }
-fn default_metric() -> String { "metric".to_string() }
-fn default_en() -> String { "en".to_string() }
-fn default_revision_a() -> String { "A".to_string() }
-fn default_brightness() -> u8 { 20 }
-fn default_true() -> bool { true }
+fn default_auto() -> String {
+    "AUTO".to_string()
+}
+fn default_theme() -> String {
+    "v2".to_string()
+}
+fn default_ping() -> String {
+    "8.8.8.8".to_string()
+}
+fn default_latitude() -> f64 {
+    0.0
+}
+fn default_longitude() -> f64 {
+    0.0
+}
+fn default_metric() -> String {
+    "metric".to_string()
+}
+fn default_en() -> String {
+    "en".to_string()
+}
+fn default_revision_a() -> String {
+    "A".to_string()
+}
+fn default_brightness() -> u8 {
+    20
+}
+fn default_true() -> bool {
+    true
+}
 
 impl AppConfig {
     pub fn load(path: &Path) -> anyhow::Result<Self> {
@@ -123,8 +143,14 @@ impl AppConfig {
         if theme.is_empty() || theme.len() > 64 {
             return Err("Theme name must be 1-64 characters".into());
         }
-        if !theme.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
-            return Err("Theme name contains invalid characters (use alphanumeric, hyphens, underscores)".into());
+        if !theme
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+        {
+            return Err(
+                "Theme name contains invalid characters (use alphanumeric, hyphens, underscores)"
+                    .into(),
+            );
         }
 
         // Weather coordinates: must be finite numbers

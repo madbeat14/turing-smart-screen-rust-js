@@ -11,7 +11,6 @@
 /// - Two variants:
 ///   - WeAct A: 3.5" (320x480), serial number starts with "AB"
 ///   - WeAct B: 0.96" (80x160), serial number starts with "AD"
-
 use anyhow::{Context, Result};
 use log::info;
 
@@ -101,8 +100,10 @@ impl WeActDisplay {
 
         let cmd = [
             CMD_FULL,
-            0, 0, // x0 = 0
-            0, 0, // y0 = 0
+            0,
+            0, // x0 = 0
+            0,
+            0, // y0 = 0
             ((xe - 1) & 0xFF) as u8,
             ((xe - 1) >> 8) as u8,
             ((ye - 1) & 0xFF) as u8,
@@ -127,11 +128,16 @@ impl LcdDisplay for WeActDisplay {
         self.serial.flush_input()?;
 
         // Query system version
-        self.serial.write_data(&[CMD_SYSTEM_VERSION_READ, CMD_END])?;
+        self.serial
+            .write_data(&[CMD_SYSTEM_VERSION_READ, CMD_END])?;
         match self.serial.read_data(19) {
             Ok(response) if response.len() == 19 => {
                 let version = String::from_utf8_lossy(&response[1..9]);
-                info!("WeAct {:?} device version: {}", self.variant, version.trim());
+                info!(
+                    "WeAct {:?} device version: {}",
+                    self.variant,
+                    version.trim()
+                );
             }
             _ => {
                 info!("WeAct {:?}: could not read device version", self.variant);
@@ -179,22 +185,11 @@ impl LcdDisplay for WeActDisplay {
     fn set_orientation(&mut self, orientation: Orientation) -> Result<()> {
         self.orientation = orientation;
 
-        let cmd = [
-            CMD_SET_ORIENTATION,
-            orientation as u8,
-            CMD_END,
-        ];
+        let cmd = [CMD_SET_ORIENTATION, orientation as u8, CMD_END];
         self.send_command(&cmd)
     }
 
-    fn display_rgba_image(
-        &mut self,
-        rgba: &[u8],
-        x: u16,
-        y: u16,
-        w: u16,
-        h: u16,
-    ) -> Result<()> {
+    fn display_rgba_image(&mut self, rgba: &[u8], x: u16, y: u16, w: u16, h: u16) -> Result<()> {
         let display_w = self.get_width();
         let actual_w = w.min(display_w.saturating_sub(x));
         let actual_h = h.min(self.get_height().saturating_sub(y));
@@ -302,14 +297,14 @@ mod tests {
         ];
 
         assert_eq!(header[0], 0x05); // CMD_SET_BITMAP
-        assert_eq!(header[1], 10);   // x lo
-        assert_eq!(header[2], 0);    // x hi
-        assert_eq!(header[3], 20);   // y lo
-        assert_eq!(header[4], 0);    // y hi
-        assert_eq!(header[5], 109);  // x1 lo
-        assert_eq!(header[6], 0);    // x1 hi
-        assert_eq!(header[7], 119);  // y1 lo
-        assert_eq!(header[8], 0);    // y1 hi
+        assert_eq!(header[1], 10); // x lo
+        assert_eq!(header[2], 0); // x hi
+        assert_eq!(header[3], 20); // y lo
+        assert_eq!(header[4], 0); // y hi
+        assert_eq!(header[5], 109); // x1 lo
+        assert_eq!(header[6], 0); // x1 hi
+        assert_eq!(header[7], 119); // y1 lo
+        assert_eq!(header[8], 0); // y1 hi
         assert_eq!(header[9], 0x0A); // CMD_END
     }
 }

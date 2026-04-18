@@ -8,7 +8,6 @@
 /// - Brightness scale: 0-500 (sent twice for reliability)
 /// - RGB565 big-endian format
 /// - Landscape orientations handled in software (270° rotation)
-
 use anyhow::{Context, Result};
 use log::info;
 
@@ -20,13 +19,13 @@ use super::{LcdDisplay, Orientation};
 struct Cmd;
 
 impl Cmd {
-    const SETORG: &[u8] = &[67, 72, 0, 0];     // Portrait orientation
-    const SET180: &[u8] = &[67, 71, 0, 0];     // Reverse portrait orientation
-    const SETBL: &[u8] = &[67, 67];            // Brightness (+ 2-byte payload)
-    const DISPCOLOR: &[u8] = &[67, 66];        // Fill screen with RGB565 color
-    const BLOCKWRITE: &[u8] = &[67, 65];       // Bitmap bounds (+ 8-byte payload)
+    const SETORG: &[u8] = &[67, 72, 0, 0]; // Portrait orientation
+    const SET180: &[u8] = &[67, 71, 0, 0]; // Reverse portrait orientation
+    const SETBL: &[u8] = &[67, 67]; // Brightness (+ 2-byte payload)
+    const DISPCOLOR: &[u8] = &[67, 66]; // Fill screen with RGB565 color
+    const BLOCKWRITE: &[u8] = &[67, 65]; // Bitmap bounds (+ 8-byte payload)
     const INTOPICMODE: &[u8] = &[68, 0, 0, 0]; // Start bitmap transmission
-    const OUTPICMODE: &[u8] = &[65, 0, 0, 0];  // End bitmap transmission
+    const OUTPICMODE: &[u8] = &[65, 0, 0, 0]; // End bitmap transmission
 }
 
 pub struct RevDDisplay {
@@ -135,14 +134,7 @@ impl LcdDisplay for RevDDisplay {
         }
     }
 
-    fn display_rgba_image(
-        &mut self,
-        rgba: &[u8],
-        x: u16,
-        y: u16,
-        w: u16,
-        h: u16,
-    ) -> Result<()> {
+    fn display_rgba_image(&mut self, rgba: &[u8], x: u16, y: u16, w: u16, h: u16) -> Result<()> {
         let display_w = self.get_width();
         let display_h = self.get_height();
 
@@ -155,21 +147,22 @@ impl LcdDisplay for RevDDisplay {
 
         // For landscape orientations, rotate image 270° and recalculate coordinates
         let (rgba_data, x0, y0, x1, y1, _img_w) = match self.orientation {
-            Orientation::Portrait | Orientation::ReversePortrait => {
-                (rgba.to_vec(), x, y, x + actual_w - 1, y + actual_h - 1, actual_w)
-            }
+            Orientation::Portrait | Orientation::ReversePortrait => (
+                rgba.to_vec(),
+                x,
+                y,
+                x + actual_w - 1,
+                y + actual_h - 1,
+                actual_w,
+            ),
             Orientation::Landscape | Orientation::ReverseLandscape => {
                 let (rotated, new_w, new_h) = Self::rotate_270(rgba, actual_w, actual_h);
-                let rx = self.display_width.saturating_sub(y).saturating_sub(actual_h);
+                let rx = self
+                    .display_width
+                    .saturating_sub(y)
+                    .saturating_sub(actual_h);
                 let ry = x;
-                (
-                    rotated,
-                    rx,
-                    ry,
-                    rx + new_w - 1,
-                    ry + new_h - 1,
-                    new_w,
-                )
+                (rotated, rx, ry, rx + new_w - 1, ry + new_h - 1, new_w)
             }
         };
 

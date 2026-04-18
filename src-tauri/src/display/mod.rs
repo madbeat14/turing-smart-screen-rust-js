@@ -7,7 +7,7 @@ pub mod protocol_weact;
 pub mod rgb565;
 pub mod serial;
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use log::info;
 
 use crate::config::DisplayConfig;
@@ -59,14 +59,7 @@ pub trait LcdDisplay: Send {
 
     /// Display an RGBA image at the given position
     /// `rgba` is raw RGBA pixel data, `w` x `h` pixels
-    fn display_rgba_image(
-        &mut self,
-        rgba: &[u8],
-        x: u16,
-        y: u16,
-        w: u16,
-        h: u16,
-    ) -> Result<()>;
+    fn display_rgba_image(&mut self, rgba: &[u8], x: u16, y: u16, w: u16, h: u16) -> Result<()>;
 
     /// Get current display width (accounting for orientation)
     fn get_width(&self) -> u16;
@@ -95,7 +88,11 @@ pub fn dimensions_for_sub_revision(sub: SubRevision) -> (u16, u16) {
 
 /// Factory function: create the right display driver based on config
 pub fn create_display(config: &DisplayConfig) -> Result<Box<dyn LcdDisplay>> {
-    let com_port = if config.com_port.is_empty() { "AUTO" } else { &config.com_port };
+    let com_port = if config.com_port.is_empty() {
+        "AUTO"
+    } else {
+        &config.com_port
+    };
     let revision = config.revision.to_uppercase();
 
     info!("Creating display driver for revision '{}'", revision);
@@ -120,17 +117,13 @@ pub fn create_display(config: &DisplayConfig) -> Result<Box<dyn LcdDisplay>> {
             Ok(Box::new(display))
         }
         "WEACT_A" => {
-            let display = protocol_weact::WeActDisplay::new(
-                com_port,
-                protocol_weact::WeActVariant::A,
-            )?;
+            let display =
+                protocol_weact::WeActDisplay::new(com_port, protocol_weact::WeActVariant::A)?;
             Ok(Box::new(display))
         }
         "WEACT_B" => {
-            let display = protocol_weact::WeActDisplay::new(
-                com_port,
-                protocol_weact::WeActVariant::B,
-            )?;
+            let display =
+                protocol_weact::WeActDisplay::new(com_port, protocol_weact::WeActVariant::B)?;
             Ok(Box::new(display))
         }
         _ => Err(anyhow!("Unknown display revision: '{}'", revision)),

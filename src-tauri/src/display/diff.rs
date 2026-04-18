@@ -3,7 +3,6 @@
 /// Divides the screen into tiles (default 32x32), compares current vs previous frame,
 /// collects dirty tiles, and merges adjacent ones into larger rectangles.
 /// Critical optimization: serial is only ~11.5 KB/s at 115200 baud.
-
 /// A rectangular region of the display that needs updating
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DirtyRect {
@@ -60,8 +59,8 @@ impl FrameDiffer {
             }];
         }
 
-        let tiles_x = (self.screen_width + self.tile_size - 1) / self.tile_size;
-        let tiles_y = (self.screen_height + self.tile_size - 1) / self.tile_size;
+        let tiles_x = self.screen_width.div_ceil(self.tile_size);
+        let tiles_y = self.screen_height.div_ceil(self.tile_size);
 
         let mut dirty_tiles: Vec<bool> = vec![false; (tiles_x as usize) * (tiles_y as usize)];
 
@@ -81,11 +80,12 @@ impl FrameDiffer {
                     let start = y_offset + x_start;
                     let end = start + tile_w * 2;
 
-                    if end <= current.len() && end <= self.prev_frame.len() {
-                        if current[start..end] != self.prev_frame[start..end] {
-                            is_dirty = true;
-                            break 'tile_check;
-                        }
+                    if end <= current.len()
+                        && end <= self.prev_frame.len()
+                        && current[start..end] != self.prev_frame[start..end]
+                    {
+                        is_dirty = true;
+                        break 'tile_check;
                     }
                 }
 
@@ -119,8 +119,8 @@ impl FrameDiffer {
                     // End of a horizontal run — emit rectangle
                     let rect_x = (start as u16) * self.tile_size;
                     let rect_y = (ty as u16) * self.tile_size;
-                    let rect_w = ((tx - start) as u16 * self.tile_size)
-                        .min(self.screen_width - rect_x);
+                    let rect_w =
+                        ((tx - start) as u16 * self.tile_size).min(self.screen_width - rect_x);
                     let rect_h = self.tile_size.min(self.screen_height - rect_y);
 
                     rects.push(DirtyRect {
@@ -211,7 +211,15 @@ mod tests {
         let frame = vec![0u8; 64 * 64 * 2];
         let rects = differ.diff(&frame);
         assert_eq!(rects.len(), 1);
-        assert_eq!(rects[0], DirtyRect { x: 0, y: 0, w: 64, h: 64 });
+        assert_eq!(
+            rects[0],
+            DirtyRect {
+                x: 0,
+                y: 0,
+                w: 64,
+                h: 64
+            }
+        );
     }
 
     #[test]
@@ -252,10 +260,15 @@ mod tests {
         let region = extract_region(
             &frame,
             4,
-            &DirtyRect { x: 1, y: 1, w: 2, h: 2 },
+            &DirtyRect {
+                x: 1,
+                y: 1,
+                w: 2,
+                h: 2,
+            },
         );
         assert_eq!(region.len(), 2 * 2 * 2); // 2x2 pixels * 2 bytes
-        // Pixel (2,2) in screen = (1,1) in region
+                                             // Pixel (2,2) in screen = (1,1) in region
         assert_eq!(region[1 * 4 + 2], 0xAB);
         assert_eq!(region[1 * 4 + 3], 0xCD);
     }
@@ -263,11 +276,29 @@ mod tests {
     #[test]
     fn test_merge_vertical_rects() {
         let mut rects = vec![
-            DirtyRect { x: 0, y: 0, w: 32, h: 32 },
-            DirtyRect { x: 0, y: 32, w: 32, h: 32 },
+            DirtyRect {
+                x: 0,
+                y: 0,
+                w: 32,
+                h: 32,
+            },
+            DirtyRect {
+                x: 0,
+                y: 32,
+                w: 32,
+                h: 32,
+            },
         ];
         merge_vertical(&mut rects);
         assert_eq!(rects.len(), 1);
-        assert_eq!(rects[0], DirtyRect { x: 0, y: 0, w: 32, h: 64 });
+        assert_eq!(
+            rects[0],
+            DirtyRect {
+                x: 0,
+                y: 0,
+                w: 32,
+                h: 64
+            }
+        );
     }
 }

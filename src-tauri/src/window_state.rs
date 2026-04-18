@@ -3,7 +3,6 @@
 ///
 /// Each window label maps to an arbitrary JSON object so the frontend
 /// can save whatever it needs (width, height, panel widths, etc.).
-
 use log::{error, info};
 use serde_json::Value;
 use std::collections::HashMap;
