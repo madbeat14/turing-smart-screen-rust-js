@@ -44,7 +44,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: turing-smart-screen-v__VERSION__
+          tagName: v__VERSION__
           releaseName: 'Turing Smart Screen v__VERSION__'
           releaseBody: 'Download the MSI installer below.'
           releaseDraft: true
