@@ -225,30 +225,6 @@ pub struct SaveTemplateArgs {
 pub fn save_template(args: SaveTemplateArgs) -> Result<(), String> {
     validate_template_name(&args.name)?;
 
-    const MAX_FILE_SIZE: usize = 1024 * 1024; // 1 MB per file
-    const MAX_MANIFEST_SIZE: usize = 65536; // 64 KB for manifest
-    if args.manifest.len() > MAX_MANIFEST_SIZE {
-        return Err(format!(
-            "manifest.json too large ({} bytes, max {})",
-            args.manifest.len(),
-            MAX_MANIFEST_SIZE
-        ));
-    }
-    for (name, content) in [
-        ("template.html", &args.html),
-        ("style.css", &args.css),
-        ("app.js", &args.js),
-    ] {
-        if content.len() > MAX_FILE_SIZE {
-            return Err(format!(
-                "{} too large ({} bytes, max {})",
-                name,
-                content.len(),
-                MAX_FILE_SIZE
-            ));
-        }
-    }
-
     // Validate manifest JSON is parseable
     serde_json::from_str::<serde_json::Value>(&args.manifest)
         .map_err(|e| format!("Invalid manifest JSON: {}", e))?;
