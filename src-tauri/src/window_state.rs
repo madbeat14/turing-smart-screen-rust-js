@@ -11,7 +11,7 @@ use std::path::PathBuf;
 type StateMap = HashMap<String, Value>;
 
 fn state_path() -> PathBuf {
-    crate::config::AppConfig::config_dir().join("window_state.json")
+    crate::config::AppConfig::data_dir().join("window_state.json")
 }
 
 fn load_all() -> StateMap {
