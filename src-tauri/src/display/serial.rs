@@ -2,7 +2,16 @@ use anyhow::{anyhow, Context, Result};
 use log::{debug, error, info, warn};
 use serialport::{SerialPort, SerialPortInfo, SerialPortType};
 use std::io::{Read, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
+
+static SHUTDOWN: AtomicBool = AtomicBool::new(false);
+
+/// Signal all `SerialConnection` reconnect loops to abort and return an error.
+/// Call this from the app exit handler so the display thread can exit cleanly.
+pub fn signal_shutdown() {
+    SHUTDOWN.store(true, Ordering::Relaxed);
+}
 
 /// Serial port wrapper with error recovery and auto-detection
 pub struct SerialConnection {
@@ -38,12 +47,8 @@ impl SerialConnection {
     }
 
     /// Auto-detect COM port by USB VID:PID and optional serial number filter
-    pub fn auto_detect(
-        vid_pid_pairs: &[(u16, u16)],
-        serial_numbers: &[&str],
-    ) -> Result<String> {
-        let ports = serialport::available_ports()
-            .context("Failed to enumerate serial ports")?;
+    pub fn auto_detect(vid_pid_pairs: &[(u16, u16)], serial_numbers: &[&str]) -> Result<String> {
+        let ports = serialport::available_ports().context("Failed to enumerate serial ports")?;
 
         // First pass: match by serial number (most specific)
         for port_info in &ports {
@@ -98,10 +103,16 @@ impl SerialConnection {
             .unwrap_or(false);
 
         if !is_present && self.was_present {
-            warn!("Serial port {} disappeared — USB cable likely disconnected", self.port_name);
+            warn!(
+                "Serial port {} disappeared — USB cable likely disconnected",
+                self.port_name
+            );
             self.was_present = false;
         } else if is_present && !self.was_present {
-            info!("Serial port {} reappeared — USB cable reconnected", self.port_name);
+            info!(
+                "Serial port {} reappeared — USB cable reconnected",
+                self.port_name
+            );
             self.was_present = true;
             // Reopen with a fresh handle since the old one is stale
             match Self::open_port(&self.port_name) {
@@ -158,7 +169,10 @@ impl SerialConnection {
         match self.port.read_exact(&mut buf) {
             Ok(()) => Ok(buf),
             Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
-                warn!("Serial read timed out on {} (expected {} bytes)", self.port_name, size);
+                warn!(
+                    "Serial read timed out on {} (expected {} bytes)",
+                    self.port_name, size
+                );
                 Ok(Vec::new())
             }
             Err(e) => {
@@ -195,8 +209,15 @@ impl SerialConnection {
     /// the cable is plugged back in, so we retry every 2 seconds.
     fn reconnect_with_retry(&mut self) -> Result<()> {
         const MAX_RECONNECT_ATTEMPTS: u32 = 150; // ~5 minutes
-        warn!("Attempting to reconnect to serial port {}...", self.port_name);
+        warn!(
+            "Attempting to reconnect to serial port {}...",
+            self.port_name
+        );
         for attempt in 0..MAX_RECONNECT_ATTEMPTS {
+            if SHUTDOWN.load(Ordering::Relaxed) {
+                info!("Reconnect aborted: shutdown signalled");
+                return Err(anyhow!("Shutdown"));
+            }
             std::thread::sleep(Duration::from_secs(2));
 
             match Self::open_port(&self.port_name) {
@@ -210,7 +231,10 @@ impl SerialConnection {
                 Err(e) => {
                     debug!(
                         "Reconnect attempt {}/{} to {} failed: {}. Retrying in 2s...",
-                        attempt + 1, MAX_RECONNECT_ATTEMPTS, self.port_name, e
+                        attempt + 1,
+                        MAX_RECONNECT_ATTEMPTS,
+                        self.port_name,
+                        e
                     );
                 }
             }

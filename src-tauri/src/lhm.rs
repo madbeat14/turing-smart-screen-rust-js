@@ -7,8 +7,7 @@
 /// Architecture:
 ///   LhmService.exe (C#) → stdout JSON lines → reader thread → Arc<Mutex<LhmSensorData>>
 ///   sensor_loop reads from the shared state and merges with sysinfo data.
-
-use log::{info, warn, error};
+use log::{error, info, warn};
 use serde::Deserialize;
 use std::io::BufRead;
 use std::process::{Child, Command, Stdio};
@@ -108,16 +107,17 @@ fn launch_and_read(service_exe: std::path::PathBuf, shared: Arc<Mutex<LhmSensorD
 
                 // Spawn stderr logger thread
                 if let Some(stderr) = stderr {
-                    if let Err(e) = std::thread::Builder::new()
-                        .name("lhm-stderr".into())
-                        .spawn(move || {
-                            let reader = std::io::BufReader::new(stderr);
-                            for line in reader.lines().flatten() {
-                                if !line.is_empty() {
-                                    info!("LhmService stderr: {}", line);
+                    if let Err(e) =
+                        std::thread::Builder::new()
+                            .name("lhm-stderr".into())
+                            .spawn(move || {
+                                let reader = std::io::BufReader::new(stderr);
+                                for line in reader.lines().map_while(Result::ok) {
+                                    if !line.is_empty() {
+                                        info!("LhmService stderr: {}", line);
+                                    }
                                 }
-                            }
-                        })
+                            })
                     {
                         warn!("Failed to spawn LHM stderr reader thread: {}", e);
                     }
@@ -126,18 +126,23 @@ fn launch_and_read(service_exe: std::path::PathBuf, shared: Arc<Mutex<LhmSensorD
                 // Spawn stdout reader thread for sensor data
                 if let Some(stdout) = stdout {
                     let reader_shared = shared.clone();
-                    if let Err(e) = std::thread::Builder::new()
-                        .name("lhm-reader".into())
-                        .spawn(move || {
-                            read_sensor_output(stdout, reader_shared);
-                        })
+                    if let Err(e) =
+                        std::thread::Builder::new()
+                            .name("lhm-reader".into())
+                            .spawn(move || {
+                                read_sensor_output(stdout, reader_shared);
+                            })
                     {
                         error!("Failed to spawn LHM reader thread: {}", e);
                     }
                 }
             }
             Err(e) => {
-                error!("Failed to start LHM service: {} (os error: {:?})", e, e.raw_os_error());
+                error!(
+                    "Failed to start LHM service: {} (os error: {:?})",
+                    e,
+                    e.raw_os_error()
+                );
             }
         }
     }
@@ -183,7 +188,10 @@ fn read_sensor_output(stdout: std::process::ChildStdout, shared: Arc<Mutex<LhmSe
         }
     }
 
-    info!("LHM sensor reader thread exiting (read {} lines total)", count);
+    info!(
+        "LHM sensor reader thread exiting (read {} lines total)",
+        count
+    );
 }
 
 /// Check if LhmService is already running.

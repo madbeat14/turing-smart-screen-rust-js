@@ -8,8 +8,7 @@
 /// - Complex bitmap protocol: PRE_UPDATE → START_DISPLAY → size-specific → payload → QUERY_STATUS
 /// - Sleep/wake protocol for screen power management
 /// - Sub-revisions: 2.1"/2.8" (480x480), 5" (480x800), 8.8" (480x1920)
-
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 use log::{debug, info, warn};
 
 use super::rgb565::rgba_to_bgra;
@@ -30,8 +29,12 @@ struct Cmd;
 
 #[allow(dead_code)] // Full command set for protocol completeness
 impl Cmd {
-    const HELLO: &[u8] = &[0x01, 0xef, 0x69, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xc5, 0xd3];
-    const OPTIONS: &[u8] = &[0x7d, 0xef, 0x69, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x2d];
+    const HELLO: &[u8] = &[
+        0x01, 0xef, 0x69, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xc5, 0xd3,
+    ];
+    const OPTIONS: &[u8] = &[
+        0x7d, 0xef, 0x69, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x2d,
+    ];
     const RESTART: &[u8] = &[0x84, 0xef, 0x69, 0x00, 0x00, 0x00, 0x01];
     const TURNOFF: &[u8] = &[0x83, 0xef, 0x69, 0x00, 0x00, 0x00, 0x01];
     const SET_BRIGHTNESS: &[u8] = &[0x7b, 0xef, 0x69, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00];
@@ -63,11 +66,7 @@ pub struct RevCDisplay {
 
 impl RevCDisplay {
     // Auto-detect identifiers
-    const VID_PID: [(u16, u16); 3] = [
-        (0x1a86, 0xca21),
-        (0x0525, 0xa4a7),
-        (0x1d6b, 0x0121),
-    ];
+    const VID_PID: [(u16, u16); 3] = [(0x1a86, 0xca21), (0x0525, 0xa4a7), (0x1d6b, 0x0121)];
     const SERIAL_NUMBERS: [&str; 3] = ["USB7INCH", "CT21INCH", "20080411"];
 
     pub fn new(com_port: &str, display_width: u16, display_height: u16) -> Result<Self> {
@@ -110,7 +109,13 @@ impl RevCDisplay {
     }
 
     /// Send command and read response
-    fn send_command_read(&mut self, cmd: &[u8], payload: Option<&[u8]>, pad_byte: u8, read_size: usize) -> Result<Vec<u8>> {
+    fn send_command_read(
+        &mut self,
+        cmd: &[u8],
+        payload: Option<&[u8]>,
+        pad_byte: u8,
+        read_size: usize,
+    ) -> Result<Vec<u8>> {
         self.send_command(cmd, payload, pad_byte)?;
         self.serial.read_data(read_size)
     }
@@ -137,7 +142,10 @@ impl RevCDisplay {
         debug!("Rev C display ID: {}", response_str);
 
         if !response_str.starts_with("chs_") {
-            warn!("Rev C: unexpected display ID '{}', retrying...", response_str);
+            warn!(
+                "Rev C: unexpected display ID '{}', retrying...",
+                response_str
+            );
         }
 
         // Detect sub-revision from configured dimensions (more reliable than ID string)
@@ -300,14 +308,7 @@ impl LcdDisplay for RevCDisplay {
         self.send_command(Cmd::OPTIONS, Some(&options), 0x00)
     }
 
-    fn display_rgba_image(
-        &mut self,
-        rgba: &[u8],
-        x: u16,
-        y: u16,
-        w: u16,
-        h: u16,
-    ) -> Result<()> {
+    fn display_rgba_image(&mut self, rgba: &[u8], x: u16, y: u16, w: u16, h: u16) -> Result<()> {
         let display_w = self.get_width();
         let display_h = self.get_height();
 
@@ -319,8 +320,8 @@ impl LcdDisplay for RevCDisplay {
             self.send_command(Cmd::START_DISPLAY_BITMAP, None, 0x2c)?; // pad with 0x2c
 
             let bmp_cmd = self.display_bitmap_cmd().to_vec();
-            let dim_payload = ((self.display_width as u32 * self.display_width as u32 / 64) as u16)
-                .to_be_bytes();
+            let dim_payload =
+                ((self.display_width as u32 * self.display_width as u32 / 64) as u16).to_be_bytes();
             self.send_command(&bmp_cmd, Some(&dim_payload), 0x00)?;
 
             let image_data = self.generate_full_image(rgba, w, h);

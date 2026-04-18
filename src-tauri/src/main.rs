@@ -15,7 +15,7 @@ mod window_state;
 
 use display::diff::FrameDiffer;
 use display::rgb565::rgba_to_rgb565_le;
-use display::{Orientation, create_display};
+use display::{create_display, Orientation};
 use log::{debug, error, info, warn};
 use serde::Serialize;
 use std::sync::mpsc;
@@ -116,7 +116,9 @@ fn main() {
             let config = display_config.clone();
             let loop_shared_config = app.state::<SharedConfig>().inner().clone();
             std::thread::spawn(move || {
-                if let Err(e) = run_display_loop(display_handle, config, loop_shared_config, restart_rx) {
+                if let Err(e) =
+                    run_display_loop(display_handle, config, loop_shared_config, restart_rx)
+                {
                     error!("Display loop failed: {}", e);
                 }
             });
@@ -128,6 +130,7 @@ fn main() {
         .run(|_app, event| {
             if let tauri::RunEvent::Exit = event {
                 info!("Shutting down — stopping LibreHardwareMonitor");
+                display::serial::signal_shutdown();
                 lhm::stop_lhm();
             }
         });
@@ -147,7 +150,10 @@ fn run_display_loop(
     let mut display = match create_display(&config) {
         Ok(d) => d,
         Err(e) => {
-            warn!("Could not connect to display: {}. Running without display output.", e);
+            warn!(
+                "Could not connect to display: {}. Running without display output.",
+                e
+            );
             return Ok(());
         }
     };
@@ -193,7 +199,8 @@ fn run_display_loop(
     let mut differ = FrameDiffer::new(screen_w, screen_h, 32);
 
     // Pre-allocated buffer for extracting dirty rect RGBA regions (avoids per-rect allocation)
-    let mut region_rgba_buf: Vec<u8> = Vec::with_capacity((screen_w as usize) * (screen_h as usize) * 4);
+    let mut region_rgba_buf: Vec<u8> =
+        Vec::with_capacity((screen_w as usize) * (screen_h as usize) * 4);
 
     // Get the webview window handle
     let window = app_handle
@@ -222,8 +229,10 @@ fn run_display_loop(
                 if let Err(e) = display.set_orientation(new_orientation) {
                     warn!("Failed to set orientation: {}", e);
                 }
-                info!("Display config reapplied (brightness={}, reverse={})",
-                    new_display.brightness, new_display.display_reverse);
+                info!(
+                    "Display config reapplied (brightness={}, reverse={})",
+                    new_display.brightness, new_display.display_reverse
+                );
             }
             // Force full frame redraw
             differ.reset();
@@ -275,48 +284,59 @@ fn run_display_loop(
         }
 
         // Capture webview screenshot
-        let rgba = match screenshot::capture_webview_screenshot(
-            &window,
-            screen_w as u32,
-            screen_h as u32,
-        ) {
-            Ok(pixels) => {
-                if frame_counter < 5 {
-                    info!("Screenshot #{}: {} bytes, {}x{}", frame_counter, pixels.len(), screen_w, screen_h);
-                }
-                // Save the first screenshot after each restart as a debug PNG
-                if frame_counter == 0 {
-                    // Count non-black pixels to detect blank renders
-                    let non_black = pixels.chunks(4)
-                        .filter(|p| p[0] > 5 || p[1] > 5 || p[2] > 5)
-                        .count();
-                    let total = pixels.len() / 4;
-                    info!("Screenshot pixel analysis: {}/{} non-black pixels ({:.1}%)",
-                        non_black, total, (non_black as f64 / total as f64) * 100.0);
-                    
-                    let ts = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs();
-                    let debug_path = config::AppConfig::config_dir()
-                        .join(format!("debug_screenshot_{}.png", ts));
-                    if let Some(img) = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(
-                        screen_w as u32, screen_h as u32, pixels.clone()
-                    ) {
-                        match img.save(&debug_path) {
-                            Ok(_) => info!("Debug screenshot saved to {:?}", debug_path),
-                            Err(e) => warn!("Failed to save debug screenshot: {}", e),
+        let rgba =
+            match screenshot::capture_webview_screenshot(&window, screen_w as u32, screen_h as u32)
+            {
+                Ok(pixels) => {
+                    if frame_counter < 5 {
+                        info!(
+                            "Screenshot #{}: {} bytes, {}x{}",
+                            frame_counter,
+                            pixels.len(),
+                            screen_w,
+                            screen_h
+                        );
+                    }
+                    // Save the first screenshot after each restart as a debug PNG
+                    if frame_counter == 0 {
+                        // Count non-black pixels to detect blank renders
+                        let non_black = pixels
+                            .chunks(4)
+                            .filter(|p| p[0] > 5 || p[1] > 5 || p[2] > 5)
+                            .count();
+                        let total = pixels.len() / 4;
+                        info!(
+                            "Screenshot pixel analysis: {}/{} non-black pixels ({:.1}%)",
+                            non_black,
+                            total,
+                            (non_black as f64 / total as f64) * 100.0
+                        );
+
+                        let ts = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs();
+                        let debug_path = config::AppConfig::config_dir()
+                            .join(format!("debug_screenshot_{}.png", ts));
+                        if let Some(img) = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(
+                            screen_w as u32,
+                            screen_h as u32,
+                            pixels.clone(),
+                        ) {
+                            match img.save(&debug_path) {
+                                Ok(_) => info!("Debug screenshot saved to {:?}", debug_path),
+                                Err(e) => warn!("Failed to save debug screenshot: {}", e),
+                            }
                         }
                     }
+                    pixels
                 }
-                pixels
-            }
-            Err(e) => {
-                warn!("Screenshot failed: {}", e);
-                std::thread::sleep(std::time::Duration::from_secs(1));
-                continue;
-            }
-        };
+                Err(e) => {
+                    warn!("Screenshot failed: {}", e);
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    continue;
+                }
+            };
 
         // Convert to RGB565 for diffing
         let rgb565 = rgba_to_rgb565_le(&rgba);
@@ -335,7 +355,11 @@ fn run_display_loop(
         }
 
         if frame_counter < 10 {
-            info!("Frame #{}: {} dirty rects to send", frame_counter, dirty_rects.len());
+            info!(
+                "Frame #{}: {} dirty rects to send",
+                frame_counter,
+                dirty_rects.len()
+            );
         }
 
         // Send only changed regions
@@ -463,7 +487,8 @@ fn restart_display(sender: tauri::State<RestartSender>) -> Result<(), String> {
 #[tauri::command]
 fn reload_monitor(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(win) = app.get_webview_window("monitor") {
-        win.eval("window.location.reload();").map_err(|e| e.to_string())?;
+        win.eval("window.location.reload();")
+            .map_err(|e| e.to_string())?;
         info!("Monitor webview reloaded");
     }
     Ok(())
@@ -529,7 +554,12 @@ fn init_file_logger() {
                     let (year, month, day) = epoch_days_to_date(days);
                     let msg = format!(
                         "[{:04}-{:02}-{:02} {:02}:{:02}:{:02} {} {}] {}\n",
-                        year, month, day, hours, minutes, seconds,
+                        year,
+                        month,
+                        day,
+                        hours,
+                        minutes,
+                        seconds,
                         record.level(),
                         record.target(),
                         record.args()
@@ -556,7 +586,11 @@ fn epoch_days_to_date(days: u64) -> (u64, u64, u64) {
     let mut y = 1970;
     let mut remaining = days;
     loop {
-        let days_in_year = if y % 4 == 0 && (y % 100 != 0 || y % 400 == 0) { 366 } else { 365 };
+        let days_in_year = if y % 4 == 0 && (y % 100 != 0 || y % 400 == 0) {
+            366
+        } else {
+            365
+        };
         if remaining < days_in_year {
             break;
         }
@@ -564,7 +598,20 @@ fn epoch_days_to_date(days: u64) -> (u64, u64, u64) {
         y += 1;
     }
     let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
-    let month_days = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let month_days = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
     let mut m = 0;
     for md in &month_days {
         if remaining < *md {

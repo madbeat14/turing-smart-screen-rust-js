@@ -8,7 +8,6 @@
 /// - Reverse orientations handled in software (180° rotation)
 /// - 50ms cooldown between bitmaps
 /// - Flagship variant supports RGB backplate LED
-
 use anyhow::{Context, Result};
 use log::{info, warn};
 
@@ -207,7 +206,11 @@ impl LcdDisplay for RevBDisplay {
             ((level as u16 * 255) / 100) as u8
         } else {
             // Binary: 1 = off, 0 = full brightness
-            if level == 0 { 1 } else { 0 }
+            if level == 0 {
+                1
+            } else {
+                0
+            }
         };
         self.send_command(Command::SetBrightness, &[converted])
     }
@@ -221,14 +224,7 @@ impl LcdDisplay for RevBDisplay {
         self.send_command(Command::SetOrientation, &[hw as u8])
     }
 
-    fn display_rgba_image(
-        &mut self,
-        rgba: &[u8],
-        x: u16,
-        y: u16,
-        w: u16,
-        h: u16,
-    ) -> Result<()> {
+    fn display_rgba_image(&mut self, rgba: &[u8], x: u16, y: u16, w: u16, h: u16) -> Result<()> {
         let display_w = self.get_width();
         let display_h = self.get_height();
 

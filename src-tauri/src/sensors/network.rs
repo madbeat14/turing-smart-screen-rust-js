@@ -34,7 +34,11 @@ pub fn create_networks() -> Networks {
 }
 
 /// Compute upload/download rates in bytes/sec from two snapshots
-pub fn compute_rates(prev: &NetworkSnapshot, curr: &NetworkSnapshot, interval_secs: f64) -> NetworkData {
+pub fn compute_rates(
+    prev: &NetworkSnapshot,
+    curr: &NetworkSnapshot,
+    interval_secs: f64,
+) -> NetworkData {
     if interval_secs <= 0.0 {
         return NetworkData {
             upload_rate: None,
@@ -43,7 +47,9 @@ pub fn compute_rates(prev: &NetworkSnapshot, curr: &NetworkSnapshot, interval_se
     }
 
     let rx_delta = curr.total_received.saturating_sub(prev.total_received) as f64;
-    let tx_delta = curr.total_transmitted.saturating_sub(prev.total_transmitted) as f64;
+    let tx_delta = curr
+        .total_transmitted
+        .saturating_sub(prev.total_transmitted) as f64;
 
     NetworkData {
         upload_rate: Some(tx_delta / interval_secs),

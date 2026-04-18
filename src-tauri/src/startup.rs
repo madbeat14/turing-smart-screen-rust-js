@@ -2,7 +2,6 @@
 ///
 /// Uses `schtasks.exe` to create/query/delete a scheduled task that launches
 /// the app at user logon with HighestAvailable (admin) run level.
-
 use log::{info, warn};
 use std::env;
 use std::fs;

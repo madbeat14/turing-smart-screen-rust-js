@@ -1,7 +1,6 @@
 /// Image format conversion utilities.
 ///
 /// Ports `library/lcd/serialize.py` from the Python implementation.
-
 /// Convert RGBA pixel buffer to RGB565 little-endian bytes (for Rev A, WeAct)
 pub fn rgba_to_rgb565_le(rgba: &[u8]) -> Vec<u8> {
     let pixel_count = rgba.len() / 4;
@@ -73,9 +72,9 @@ pub fn rgba_to_compressed_bgra(rgba: &[u8]) -> Vec<u8> {
 
     for pixel in rgba.chunks_exact(4) {
         let a = pixel[3] >> 4; // 4-bit alpha
-        out.push((pixel[2] & 0xFC) | (a >> 2));    // B with alpha high bits
-        out.push((pixel[1] & 0xFC) | (a & 0x02));  // G with alpha low bit
-        out.push(pixel[0]);                          // R
+        out.push((pixel[2] & 0xFC) | (a >> 2)); // B with alpha high bits
+        out.push((pixel[1] & 0xFC) | (a & 0x02)); // G with alpha low bit
+        out.push(pixel[0]); // R
     }
 
     out
