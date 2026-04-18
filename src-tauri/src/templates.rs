@@ -23,24 +23,22 @@ pub struct TemplateInfo {
     pub is_modified: bool,
 }
 
-/// Returns the directory where user-created templates are stored (next to the exe).
+/// Returns the directory where user-created templates are stored (in AppData).
 fn user_templates_dir() -> PathBuf {
-    crate::config::AppConfig::config_dir().join("templates")
+    crate::config::AppConfig::data_dir().join("templates")
 }
 
 /// Returns all candidate directories where built-in templates might live.
-/// Checks multiple paths to work in both dev mode and production builds.
-fn builtin_template_candidates() -> Vec<PathBuf> {
-    let exe_dir = crate::config::AppConfig::config_dir();
+/// `resource_dir` is Tauri's resource_dir() — the install dir in production.
+fn builtin_template_candidates(resource_dir: &std::path::Path) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
 
-    // Production: templates bundled next to exe
-    candidates.push(exe_dir.join("templates"));
+    // Production: templates bundled as resources in install dir
+    candidates.push(resource_dir.join("templates"));
 
     // Dev mode: exe is in src-tauri/target/{debug|release}/
-    // Frontend dist is at project_root/src/templates/
-    // Go up from exe dir to find the project root
-    if let Some(target_dir) = exe_dir.parent() {
+    // Go up from resource_dir (which equals exe dir in dev) to project root → src/templates
+    if let Some(target_dir) = resource_dir.parent() {
         if let Some(src_tauri_dir) = target_dir.parent() {
             if let Some(project_root) = src_tauri_dir.parent() {
                 candidates.push(project_root.join("src").join("templates"));
@@ -79,14 +77,14 @@ fn is_builtin(name: &str) -> bool {
 
 /// Resolve the path to a template directory, checking user dir then built-in locations.
 /// User templates take priority over bundled ones.
-fn resolve_template_dir(name: &str) -> Option<PathBuf> {
+fn resolve_template_dir(name: &str, resource_dir: &std::path::Path) -> Option<PathBuf> {
     // Check user templates first
     let user_path = user_templates_dir().join(name);
     if user_path.exists() && user_path.is_dir() {
         return Some(user_path);
     }
     // Check all built-in candidate directories
-    for candidate in builtin_template_candidates() {
+    for candidate in builtin_template_candidates(resource_dir) {
         let path = candidate.join(name);
         if path.exists() && path.is_dir() {
             return Some(path);
@@ -95,9 +93,20 @@ fn resolve_template_dir(name: &str) -> Option<PathBuf> {
     None
 }
 
+/// Get resource_dir from AppHandle, falling back to exe-adjacent dir.
+fn get_resource_dir(app: &tauri::AppHandle) -> PathBuf {
+    app.path().resource_dir().unwrap_or_else(|_| {
+        std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+            .unwrap_or_else(|| PathBuf::from("."))
+    })
+}
+
 /// List all available templates (built-in + user-created).
 #[tauri::command]
-pub fn list_templates() -> Result<Vec<TemplateInfo>, String> {
+pub fn list_templates(app: tauri::AppHandle) -> Result<Vec<TemplateInfo>, String> {
+    let _resource_dir = get_resource_dir(&app);
     let mut templates = Vec::new();
     let mut seen = std::collections::HashSet::new();
 
@@ -190,11 +199,11 @@ fn format_display_name(name: &str) -> String {
 
 /// Read a template's manifest.json.
 #[tauri::command]
-pub fn read_template_manifest(name: String) -> Result<String, String> {
+pub fn read_template_manifest(name: String, app: tauri::AppHandle) -> Result<String, String> {
     validate_template_name(&name)?;
-
-    let dir =
-        resolve_template_dir(&name).ok_or_else(|| format!("Template '{}' not found", name))?;
+    let resource_dir = get_resource_dir(&app);
+    let dir = resolve_template_dir(&name, &resource_dir)
+        .ok_or_else(|| format!("Template '{}' not found", name))?;
 
     let manifest_path = dir.join("manifest.json");
     if !manifest_path.exists() {
@@ -318,7 +327,7 @@ pub fn delete_template(name: String) -> Result<(), String> {
 
 /// Clone a template to a new name.
 #[tauri::command]
-pub fn clone_template(source: String, target: String) -> Result<(), String> {
+pub fn clone_template(source: String, target: String, app: tauri::AppHandle) -> Result<(), String> {
     validate_template_name(&source)?;
     validate_template_name(&target)?;
 
@@ -326,7 +335,8 @@ pub fn clone_template(source: String, target: String) -> Result<(), String> {
         return Err(format!("Cannot use built-in name '{}' as target", target));
     }
 
-    let source_dir = resolve_template_dir(&source)
+    let resource_dir = get_resource_dir(&app);
+    let source_dir = resolve_template_dir(&source, &resource_dir)
         .ok_or_else(|| format!("Source template '{}' not found", source))?;
 
     let target_dir = user_templates_dir().join(&target);
@@ -514,11 +524,11 @@ pub struct TemplateFiles {
 }
 
 #[tauri::command]
-pub fn read_template_files(name: String) -> Result<TemplateFiles, String> {
+pub fn read_template_files(name: String, app: tauri::AppHandle) -> Result<TemplateFiles, String> {
     validate_template_name(&name)?;
-
-    let dir =
-        resolve_template_dir(&name).ok_or_else(|| format!("Template '{}' not found", name))?;
+    let resource_dir = get_resource_dir(&app);
+    let dir = resolve_template_dir(&name, &resource_dir)
+        .ok_or_else(|| format!("Template '{}' not found", name))?;
 
     let read_file = |filename: &str| -> Result<String, String> {
         let path = dir.join(filename);
@@ -545,10 +555,11 @@ pub struct TemplatePaths {
 }
 
 #[tauri::command]
-pub fn get_template_paths(name: String) -> Result<TemplatePaths, String> {
+pub fn get_template_paths(name: String, app: tauri::AppHandle) -> Result<TemplatePaths, String> {
     validate_template_name(&name)?;
-    let dir =
-        resolve_template_dir(&name).ok_or_else(|| format!("Template '{}' not found", name))?;
+    let resource_dir = get_resource_dir(&app);
+    let dir = resolve_template_dir(&name, &resource_dir)
+        .ok_or_else(|| format!("Template '{}' not found", name))?;
 
     let css_path = dir.join("style.css");
     let js_path = dir.join("app.js");
@@ -576,8 +587,9 @@ pub fn get_template_paths(name: String) -> Result<TemplatePaths, String> {
 #[tauri::command]
 pub fn inject_custom_template(name: String, app: tauri::AppHandle) -> Result<(), String> {
     validate_template_name(&name)?;
-    let dir =
-        resolve_template_dir(&name).ok_or_else(|| format!("Template '{}' not found", name))?;
+    let resource_dir = get_resource_dir(&app);
+    let dir = resolve_template_dir(&name, &resource_dir)
+        .ok_or_else(|| format!("Template '{}' not found", name))?;
 
     let css = std::fs::read_to_string(dir.join("style.css"))
         .map_err(|e| format!("Failed to read style.css: {}", e))?;
@@ -639,8 +651,8 @@ pub fn inject_custom_template(name: String, app: tauri::AppHandle) -> Result<(),
 
 /// Resolve the path to a built-in template directory, skipping user templates.
 /// Used by `make_builtin_editable` to find the original bundled files.
-fn resolve_builtin_template_dir(name: &str) -> Option<PathBuf> {
-    for candidate in builtin_template_candidates() {
+fn resolve_builtin_template_dir(name: &str, resource_dir: &std::path::Path) -> Option<PathBuf> {
+    for candidate in builtin_template_candidates(resource_dir) {
         let path = candidate.join(name);
         if path.exists() && path.is_dir() {
             return Some(path);
@@ -652,7 +664,7 @@ fn resolve_builtin_template_dir(name: &str) -> Option<PathBuf> {
 /// Copy a built-in template to the user templates directory so it becomes editable.
 /// Generates a manifest.json so the editor can open it.
 #[tauri::command]
-pub fn make_builtin_editable(name: String) -> Result<(), String> {
+pub fn make_builtin_editable(name: String, app: tauri::AppHandle) -> Result<(), String> {
     validate_template_name(&name)?;
 
     if !is_builtin(&name) {
@@ -665,7 +677,8 @@ pub fn make_builtin_editable(name: String) -> Result<(), String> {
         return Ok(());
     }
 
-    let source_dir = resolve_builtin_template_dir(&name)
+    let resource_dir = get_resource_dir(&app);
+    let source_dir = resolve_builtin_template_dir(&name, &resource_dir)
         .ok_or_else(|| format!("Built-in template '{}' not found", name))?;
 
     // Create target directory

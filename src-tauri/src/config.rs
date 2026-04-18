@@ -93,21 +93,68 @@ impl AppConfig {
         Ok(config)
     }
 
-    /// Resolve config directory: next to the executable, not the CWD.
-    pub fn config_dir() -> std::path::PathBuf {
+    /// User data directory — writable location for config, logs, templates, window state.
+    /// Uses %APPDATA%\Turing Smart Screen on Windows, falling back to exe-adjacent dir.
+    pub fn data_dir() -> std::path::PathBuf {
+        #[cfg(target_os = "windows")]
+        {
+            if let Ok(appdata) = std::env::var("APPDATA") {
+                return std::path::PathBuf::from(appdata).join("Turing Smart Screen");
+            }
+        }
+        // Fallback: next to the executable (dev builds, non-Windows)
         std::env::current_exe()
             .ok()
             .and_then(|p| p.parent().map(|d| d.to_path_buf()))
             .unwrap_or_else(|| std::path::PathBuf::from("."))
     }
 
-    /// Get the canonical config file path (next to the executable).
+    /// Ensure the data directory exists. Call once at startup.
+    pub fn ensure_data_dir() {
+        let dir = Self::data_dir();
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            log::warn!("Could not create data dir {:?}: {}", dir, e);
+        }
+    }
+
+    /// Migrate config.yaml from the old exe-adjacent location to data_dir if needed.
+    /// Safe to call even if migration is not needed.
+    pub fn migrate_from_install_dir() {
+        let data = Self::data_dir();
+        let new_path = data.join("config.yaml");
+        if new_path.exists() {
+            return; // Already migrated
+        }
+        let old_path = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.join("config.yaml")));
+        if let Some(old) = old_path {
+            if old.exists() {
+                if let Err(e) = std::fs::copy(&old, &new_path) {
+                    log::warn!(
+                        "Config migration failed ({} → {}): {}",
+                        old.display(),
+                        new_path.display(),
+                        e
+                    );
+                } else {
+                    log::info!(
+                        "Migrated config from {} to {}",
+                        old.display(),
+                        new_path.display()
+                    );
+                }
+            }
+        }
+    }
+
+    /// Get the canonical config file path (in data dir).
     pub fn config_path() -> std::path::PathBuf {
-        Self::config_dir().join("config.yaml")
+        Self::data_dir().join("config.yaml")
     }
 
     pub fn load_or_default() -> Self {
-        let dir = Self::config_dir();
+        let dir = Self::data_dir();
         let candidates = ["config.yaml", "config.yml"];
         for candidate in &candidates {
             let path = dir.join(candidate);

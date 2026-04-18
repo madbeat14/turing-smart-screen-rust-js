@@ -40,8 +40,12 @@ fn webview_log(level: String, msg: String) {
 }
 
 fn main() {
+    // Ensure writable data dir exists and migrate config from old exe-adjacent location.
+    config::AppConfig::ensure_data_dir();
+    config::AppConfig::migrate_from_install_dir();
+
     // Write logs to a file so we can diagnose issues even when running
-    // as admin (no console window). File: turing-smart-screen.log next to the exe.
+    // as admin (no console window). File: turing-smart-screen.log in AppData.
     init_file_logger();
     info!("Starting Turing Smart Screen");
 
@@ -316,7 +320,7 @@ fn run_display_loop(
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap_or_default()
                             .as_secs();
-                        let debug_path = config::AppConfig::config_dir()
+                        let debug_path = config::AppConfig::data_dir()
                             .join(format!("debug_screenshot_{}.png", ts));
                         if let Some(img) = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(
                             screen_w as u32,
@@ -526,7 +530,7 @@ async fn open_editor(app: tauri::AppHandle) -> Result<(), String> {
 fn init_file_logger() {
     use std::io::Write;
 
-    let log_path = config::AppConfig::config_dir().join("turing-smart-screen.log");
+    let log_path = config::AppConfig::data_dir().join("turing-smart-screen.log");
 
     let file = std::fs::OpenOptions::new()
         .create(true)
