@@ -74,6 +74,7 @@ fn main() {
             templates::inject_custom_template,
             templates::save_template,
             templates::delete_template,
+            templates::user_template_exists,
             templates::clone_template,
             templates::make_builtin_editable,
             templates::reset_builtin_template,

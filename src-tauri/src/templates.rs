@@ -325,6 +325,22 @@ pub fn delete_template(name: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Return true if a user-dir template with this name exists (has manifest.json).
+/// Used by the monitor bootstrap to prefer user-modified templates over bundled built-ins.
+#[tauri::command]
+pub fn user_template_exists(name: String) -> bool {
+    if validate_template_name(&name).is_err() {
+        return false;
+    }
+    let path = user_templates_dir().join(&name).join("manifest.json");
+    let exists = path.is_file();
+    info!(
+        "user_template_exists('{}') = {} (checked {:?})",
+        name, exists, path
+    );
+    exists
+}
+
 /// Clone a template to a new name.
 #[tauri::command]
 pub fn clone_template(source: String, target: String, app: tauri::AppHandle) -> Result<(), String> {
