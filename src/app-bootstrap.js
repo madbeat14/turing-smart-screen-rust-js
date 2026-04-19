@@ -31,10 +31,16 @@ function activateTemplate(templateId) {
   var existingCustomJs = document.getElementById('custom-template-js');
   if (existingCustomJs) existingCustomJs.remove();
 
-  // Check if this is a built-in template (v1 or v2) with inline DOM
-  var builtinTpl = document.getElementById('tpl-' + templateId);
-  if (builtinTpl) {
-    // Built-in: load CSS from file URL, show inline DOM, load JS from file URL
+  function loadBuiltinInline() {
+    var builtinTpl = document.getElementById('tpl-' + templateId);
+    if (!builtinTpl) {
+      wlog('[TEMPLATE] No inline DOM for ' + templateId + ', falling back to ' + DEFAULT_TEMPLATE);
+      var fb = document.getElementById('tpl-' + DEFAULT_TEMPLATE);
+      if (!fb) return;
+      builtinTpl = fb;
+      templateId = DEFAULT_TEMPLATE;
+    }
+    wlog('[TEMPLATE] Built-in inline: loading ' + templateId);
     var cssLink = document.getElementById('template-css');
     if (!cssLink) {
       cssLink = document.createElement('link');
@@ -42,7 +48,6 @@ function activateTemplate(templateId) {
       cssLink.rel = 'stylesheet';
       document.head.appendChild(cssLink);
     }
-    // Clear any adoptedStyleSheets from custom templates
     document.adoptedStyleSheets = [];
     cssLink.disabled = false;
     cssLink.href = 'templates/' + templateId + '/style.css';
@@ -55,17 +60,19 @@ function activateTemplate(templateId) {
     script.onload = markTemplateReady;
     script.src = 'templates/' + templateId + '/app.js';
     document.body.appendChild(script);
-  } else {
-    // Custom template: load CSS/JS via asset:// URLs (no eval required).
+  }
+
+  function loadCustom() {
     wlog('[TEMPLATE] Custom: loading ' + templateId);
 
     window.__TAURI__.core.invoke('read_template_files', { name: templateId })
       .then(function(files) {
-        wlog('[TEMPLATE] Got HTML: ' + files.html.length + ' bytes');
+        wlog('[TEMPLATE] Got HTML: ' + files.html.length + ' bytes, CSS: ' + files.css.length + ' bytes, JS: ' + files.js.length + ' bytes');
+        wlog('[TEMPLATE] HTML preview: ' + files.html.substring(0, 200).replace(/\n/g, ' '));
 
         // Fully remove built-in stylesheet to prevent CSS conflicts
         var cssLink = document.getElementById('template-css');
-        if (cssLink) cssLink.remove();
+        if (cssLink) { wlog('[TEMPLATE] Removing old built-in link: ' + cssLink.href); cssLink.remove(); }
 
         // Remove old built-in script
         var existing = document.getElementById('template-js');
@@ -101,38 +108,15 @@ function activateTemplate(templateId) {
           }
         }
         importSafe(parsed.body, container);
+        wlog('[TEMPLATE] Sanitized container innerHTML length: ' + container.innerHTML.length);
         document.body.insertBefore(container, document.querySelector('script'));
 
-        // Load CSS and JS via asset:// URLs — no eval, fully CSP-compliant.
-        return window.__TAURI__.core.invoke('get_template_paths', { name: templateId });
-      })
-      .then(function(paths) {
-        var convertFileSrc = window.__TAURI__.core.convertFileSrc;
-
-        // Clear previous custom adopted stylesheets
-        document.adoptedStyleSheets = [];
-
-        // Load CSS as external stylesheet
-        var cssLink = document.createElement('link');
-        cssLink.rel = 'stylesheet';
-        cssLink.id = 'custom-template-css';
-        cssLink.href = convertFileSrc(paths.css_path);
-        document.head.appendChild(cssLink);
-
-        // Load JS as external script — resolves when script finishes executing
-        return new Promise(function(resolve, reject) {
-          var script = document.createElement('script');
-          script.id = 'custom-template-js';
-          script.onload = resolve;
-          script.onerror = function() {
-            reject(new Error('Failed to load template script from asset URL'));
-          };
-          script.src = convertFileSrc(paths.js_path);
-          document.body.appendChild(script);
-        });
+        // Inject CSS and JS via Rust-side WebviewWindow::eval() — bypasses the
+        // asset protocol scope and CSP entirely. See templates.rs::inject_custom_template.
+        return window.__TAURI__.core.invoke('inject_custom_template', { name: templateId });
       })
       .then(function() {
-        wlog('[TEMPLATE] Custom CSS/JS loaded via asset:// URLs');
+        wlog('[TEMPLATE] Custom CSS/JS injected via inject_custom_template');
         document.title = 'Ready: ' + templateId;
         markTemplateReady();
       })
@@ -160,6 +144,23 @@ function activateTemplate(templateId) {
         }
       });
   }
+
+  // Prefer a user-modified template in AppData over the inline built-in DOM.
+  // Only fall back to the inline built-in when no user-dir template exists.
+  window.__TAURI__.core.invoke('user_template_exists', { name: templateId })
+    .then(function(exists) {
+      wlog('[TEMPLATE] user_template_exists("' + templateId + '") = ' + exists);
+      if (exists) {
+        loadCustom();
+      } else {
+        wlog('[TEMPLATE] No user template found, using built-in inline DOM');
+        loadBuiltinInline();
+      }
+    })
+    .catch(function(err) {
+      wlog('[TEMPLATE] user_template_exists error: ' + err + ', falling back to built-in');
+      loadBuiltinInline();
+    });
 }
 
 function initTemplate(attempt) {
