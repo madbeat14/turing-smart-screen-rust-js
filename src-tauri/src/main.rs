@@ -13,16 +13,31 @@ mod templates;
 mod tray;
 mod window_state;
 
-use display::diff::FrameDiffer;
-use display::rgb565::rgba_to_rgb565_le;
-use display::{create_display, Orientation};
+use display::diff::{DirtyRect, FrameDiffer};
+use display::rgb565::rgba_to_rgb565_le_into;
+use display::{create_display, LcdDisplay, Orientation};
 use log::{debug, error, info, warn};
 use serde::Serialize;
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc};
 use tauri::Manager;
 
 /// Wrapper so we can store the restart sender in Tauri managed state.
 pub struct RestartSender(pub mpsc::Sender<()>);
+
+/// A dirty display region with pre-extracted RGBA pixel data, ready to send over serial.
+struct RegionPayload {
+    rect: DirtyRect,
+    rgba: Vec<u8>,
+}
+
+/// Commands from the capture thread to the serial TX thread.
+enum TxCommand {
+    /// Update the display with the given dirty regions (RGBA data already extracted).
+    Frame(Vec<RegionPayload>),
+    /// Re-apply brightness and orientation (after a config reload via tray).
+    Reinit { brightness: u8, orientation: Orientation },
+}
 
 /// Log a message from the webview to the Rust logger
 #[tauri::command]
@@ -141,7 +156,15 @@ fn main() {
         });
 }
 
-/// Main display loop: screenshot → resize → RGB565 → diff → serial TX
+/// Main display loop: sets up the display, spawns the serial TX thread, then runs
+/// the capture loop.  The two threads are decoupled by a bounded sync_channel(1):
+///
+///   Capture thread  ──[TxCommand]──▶  TX thread
+///                   ◀──[AtomicBool]── (reconnect flag)
+///
+/// The sync_channel provides natural back-pressure: the capture thread blocks on
+/// `send` if the TX thread is still transmitting the previous frame, so no explicit
+/// sleep is needed to pace the pipeline.
 fn run_display_loop(
     app_handle: tauri::AppHandle,
     config: config::DisplayConfig,
@@ -151,7 +174,7 @@ fn run_display_loop(
     // Give the webview a moment to render its first frame
     std::thread::sleep(std::time::Duration::from_secs(2));
 
-    // Create display driver
+    // Create and initialise display
     let mut display = match create_display(&config) {
         Ok(d) => d,
         Err(e) => {
@@ -163,7 +186,6 @@ fn run_display_loop(
         }
     };
 
-    // Initialize display
     display.initialize()?;
 
     if config.reset_on_startup {
@@ -171,8 +193,6 @@ fn run_display_loop(
         if let Err(e) = display.reset() {
             warn!("Display reset failed: {}", e);
         }
-        // Reset causes USB re-enumeration — the old serial handle goes stale.
-        // Keep retrying initialize() until the port comes back and handshake succeeds.
         loop {
             match display.initialize() {
                 Ok(()) => break,
@@ -182,11 +202,9 @@ fn run_display_loop(
                 }
             }
         }
-        // Clear the reconnected flag — this was an expected reset, not a cable unplug
         display.take_reconnected();
     }
 
-    // Set brightness and orientation
     display.set_brightness(config.brightness)?;
 
     let orientation = if config.display_reverse {
@@ -200,162 +218,148 @@ fn run_display_loop(
     let screen_h = display.get_height();
     info!("Display ready: {}x{}", screen_w, screen_h);
 
-    // Frame differ for optimizing serial traffic
-    let mut differ = FrameDiffer::new(screen_w, screen_h, 32);
+    // AtomicBool: TX thread sets this after a write-error reconnect so the capture
+    // thread knows to reset the frame differ on the next iteration.
+    let write_reconnected = Arc::new(AtomicBool::new(false));
+    let write_reconnected_tx = write_reconnected.clone();
 
-    // Pre-allocated buffer for extracting dirty rect RGBA regions (avoids per-rect allocation)
-    let mut region_rgba_buf: Vec<u8> =
-        Vec::with_capacity((screen_w as usize) * (screen_h as usize) * 4);
+    // Bounded channel (capacity 1) — natural back-pressure when TX is busy.
+    let (tx_send, tx_recv) = mpsc::sync_channel::<TxCommand>(1);
 
-    // Get the webview window handle
+    // Spawn TX thread — takes ownership of display (LcdDisplay: Send).
+    // All serial I/O, health checks, and reconnect handling live here.
+    let tx_brightness = config.brightness;
+    let tx_orientation = orientation;
+    std::thread::spawn(move || {
+        run_tx_loop(display, tx_recv, write_reconnected_tx, tx_brightness, tx_orientation);
+    });
+
+    // --- Capture loop ---
+    // 16×16 tile detection (Phase 2) with sub-tile tightening (Phase 1)
+    let mut differ = FrameDiffer::new(screen_w, screen_h, 16);
+    // Pre-allocated full-frame RGB565 buffer — reused every iteration (Phase 1)
+    let mut rgb565_buf: Vec<u8> =
+        Vec::with_capacity((screen_w as usize) * (screen_h as usize) * 2);
+
     let window = app_handle
         .get_webview_window("monitor")
         .ok_or_else(|| anyhow::anyhow!("Monitor window not found"))?;
 
-    // Track iterations for periodic health check (every ~5 seconds)
-    let mut health_check_counter: u32 = 0;
-    // Frame counter for debug logging (first few frames)
     let mut frame_counter: u64 = 0;
 
     loop {
-        // Check for restart signal (settings changed or tray "Reset Monitor")
+        // Check for restart signal (tray "Reset Monitor" or settings saved)
         if restart_rx.try_recv().is_ok() {
             info!("Display restart signal received — reloading config");
-            if let Ok(cfg) = shared_config.lock() {
-                let new_display = &cfg.display;
-                if let Err(e) = display.set_brightness(new_display.brightness) {
-                    warn!("Failed to set brightness: {}", e);
-                }
-                let new_orientation = if new_display.display_reverse {
+            let (new_brightness, new_orientation) = if let Ok(cfg) = shared_config.lock() {
+                let o = if cfg.display.display_reverse {
                     Orientation::ReverseLandscape
                 } else {
                     Orientation::Landscape
                 };
-                if let Err(e) = display.set_orientation(new_orientation) {
-                    warn!("Failed to set orientation: {}", e);
-                }
                 info!(
                     "Display config reapplied (brightness={}, reverse={})",
-                    new_display.brightness, new_display.display_reverse
+                    cfg.display.brightness, cfg.display.display_reverse
                 );
-            }
-            // Force full frame redraw
+                (cfg.display.brightness, o)
+            } else {
+                (config.brightness, orientation)
+            };
+            // Tell TX thread to apply the new settings
+            let _ = tx_send.send(TxCommand::Reinit {
+                brightness: new_brightness,
+                orientation: new_orientation,
+            });
             differ.reset();
-            // Wait for webview to reload and the new template to finish rendering.
-            // Custom templates load asynchronously via IPC, so without this delay
-            // the display loop would screenshot a blank/partially-rendered page.
+            // Wait for webview to reload and the new template to finish rendering
             std::thread::sleep(std::time::Duration::from_secs(3));
-            // Reset frame counter so we get debug logs for the post-restart frames
             frame_counter = 0;
             info!("Post-restart: resuming screenshot capture");
         }
 
-        // Check if a reconnection happened (write-error path sets this flag).
-        // Also periodically poll the OS port list to catch silent disconnects
-        // where writes don't fail (Windows can buffer serial writes).
-        let needs_reinit = if display.take_reconnected() {
-            info!("Write-error reconnection detected");
-            true
-        } else {
-            health_check_counter += 1;
-            if health_check_counter >= 10 {
-                health_check_counter = 0;
-                if display.check_port_health() {
-                    info!("USB cable reconnection detected via port health check");
-                    true
-                } else {
-                    false
-                }
-            } else {
-                false
-            }
-        };
-
-        if needs_reinit {
-            // Mirror what "Reset Monitor" does — just re-apply brightness and
-            // orientation. No initialize() call — that would send a HELLO handshake
-            // which isn't needed and can interfere with the display state.
-            info!("Re-applying display settings after reconnection");
-            std::thread::sleep(std::time::Duration::from_secs(2));
-            if let Err(e) = display.set_brightness(config.brightness) {
-                warn!("Failed to restore brightness: {}", e);
-            }
-            if let Err(e) = display.set_orientation(orientation) {
-                warn!("Failed to restore orientation: {}", e);
-            }
+        // Write-error reconnect detected by TX thread — reset differ so the next
+        // frame triggers a full repaint on the freshly reconnected display.
+        if write_reconnected.swap(false, Ordering::Relaxed) {
+            info!("Capture: write-error reconnect signalled — resetting frame differ");
             differ.reset();
-            info!("Display settings restored after reconnection");
             continue;
         }
 
         // Capture webview screenshot
-        let rgba =
-            match screenshot::capture_webview_screenshot(&window, screen_w as u32, screen_h as u32)
-            {
-                Ok(pixels) => {
-                    if frame_counter < 5 {
-                        info!(
-                            "Screenshot #{}: {} bytes, {}x{}",
-                            frame_counter,
-                            pixels.len(),
-                            screen_w,
-                            screen_h
-                        );
-                    }
-                    // Save the first screenshot after each restart as a debug PNG
-                    if frame_counter == 0 {
-                        // Count non-black pixels to detect blank renders
-                        let non_black = pixels
-                            .chunks(4)
-                            .filter(|p| p[0] > 5 || p[1] > 5 || p[2] > 5)
-                            .count();
-                        let total = pixels.len() / 4;
-                        info!(
-                            "Screenshot pixel analysis: {}/{} non-black pixels ({:.1}%)",
-                            non_black,
-                            total,
-                            (non_black as f64 / total as f64) * 100.0
-                        );
-
-                        let ts = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs();
-                        let debug_path = config::AppConfig::data_dir()
-                            .join(format!("debug_screenshot_{}.png", ts));
-                        if let Some(img) = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(
-                            screen_w as u32,
-                            screen_h as u32,
-                            pixels.clone(),
-                        ) {
-                            match img.save(&debug_path) {
-                                Ok(_) => info!("Debug screenshot saved to {:?}", debug_path),
-                                Err(e) => warn!("Failed to save debug screenshot: {}", e),
-                            }
+        let rgba = match screenshot::capture_webview_screenshot(
+            &window,
+            screen_w as u32,
+            screen_h as u32,
+        ) {
+            Ok(pixels) => {
+                if frame_counter < 5 {
+                    info!(
+                        "Screenshot #{}: {} bytes, {}x{}",
+                        frame_counter,
+                        pixels.len(),
+                        screen_w,
+                        screen_h
+                    );
+                }
+                if frame_counter == 0 {
+                    let non_black = pixels
+                        .chunks(4)
+                        .filter(|p| p[0] > 5 || p[1] > 5 || p[2] > 5)
+                        .count();
+                    let total = pixels.len() / 4;
+                    info!(
+                        "Screenshot pixel analysis: {}/{} non-black pixels ({:.1}%)",
+                        non_black,
+                        total,
+                        (non_black as f64 / total as f64) * 100.0
+                    );
+                    let ts = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs();
+                    let debug_path = config::AppConfig::data_dir()
+                        .join(format!("debug_screenshot_{}.png", ts));
+                    if let Some(img) = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(
+                        screen_w as u32,
+                        screen_h as u32,
+                        pixels.clone(),
+                    ) {
+                        match img.save(&debug_path) {
+                            Ok(_) => info!("Debug screenshot saved to {:?}", debug_path),
+                            Err(e) => warn!("Failed to save debug screenshot: {}", e),
                         }
                     }
-                    pixels
                 }
-                Err(e) => {
-                    warn!("Screenshot failed: {}", e);
-                    std::thread::sleep(std::time::Duration::from_secs(1));
-                    continue;
-                }
-            };
+                pixels
+            }
+            Err(e) => {
+                warn!("Screenshot failed: {}", e);
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                continue;
+            }
+        };
 
-        // Convert to RGB565 for diffing
-        let rgb565 = rgba_to_rgb565_le(&rgba);
+        // Convert to RGB565 (reuse buffer) and diff against previous frame
+        rgba_to_rgb565_le_into(&rgba, &mut rgb565_buf);
+        let mut dirty_rects = differ.diff(&rgb565_buf);
 
-        // Diff against previous frame
-        let dirty_rects = differ.diff(&rgb565);
+        // Full-frame fallback: if dirty area ≥ 85% of screen, one rect is cheaper
+        let full_frame_bytes = (screen_w as usize) * (screen_h as usize) * 2;
+        let total_dirty_bytes: usize = dirty_rects
+            .iter()
+            .map(|r| (r.w as usize) * (r.h as usize) * 2)
+            .sum();
+        if total_dirty_bytes >= full_frame_bytes * 85 / 100 {
+            dirty_rects = vec![DirtyRect { x: 0, y: 0, w: screen_w, h: screen_h }];
+        }
 
         if dirty_rects.is_empty() {
-            // Frame unchanged — skip serial TX
             if frame_counter < 5 {
                 info!("Frame #{}: no dirty rects (unchanged)", frame_counter);
             }
             frame_counter += 1;
-            std::thread::sleep(std::time::Duration::from_millis(100));
+            // Short sleep to avoid busy-looping when the screen is static
+            std::thread::sleep(std::time::Duration::from_millis(50));
             continue;
         }
 
@@ -367,35 +371,149 @@ fn run_display_loop(
             );
         }
 
-        // Send only changed regions
-        for rect in &dirty_rects {
-            // Extract the RGBA sub-region into the reusable buffer
-            let stride = (screen_w as usize) * 4;
-            region_rgba_buf.clear();
-
-            for row in 0..rect.h as usize {
-                let y_offset = (rect.y as usize + row) * stride;
-                let x_offset = (rect.x as usize) * 4;
-                let start = y_offset + x_offset;
-                let end = start + (rect.w as usize) * 4;
-                if end <= rgba.len() {
-                    region_rgba_buf.extend_from_slice(&rgba[start..end]);
+        // Extract each dirty region's RGBA pixels into an individually-owned Vec so
+        // they can be sent across the thread boundary to the TX loop.
+        let stride = (screen_w as usize) * 4;
+        let regions: Vec<RegionPayload> = dirty_rects
+            .iter()
+            .map(|rect| {
+                let mut rgba_region =
+                    Vec::with_capacity((rect.w as usize) * (rect.h as usize) * 4);
+                for row in 0..rect.h as usize {
+                    let y_offset = (rect.y as usize + row) * stride;
+                    let x_offset = (rect.x as usize) * 4;
+                    let start = y_offset + x_offset;
+                    let end = start + (rect.w as usize) * 4;
+                    if end <= rgba.len() {
+                        rgba_region.extend_from_slice(&rgba[start..end]);
+                    }
                 }
-            }
+                RegionPayload { rect: rect.clone(), rgba: rgba_region }
+            })
+            .collect();
 
-            if let Err(e) =
-                display.display_rgba_image(&region_rgba_buf, rect.x, rect.y, rect.w, rect.h)
-            {
-                warn!("Display update failed for rect {:?}: {}", rect, e);
-                break;
-            }
+        // Hand off to TX thread; sync_channel(1) blocks here if TX is still busy
+        // with the previous frame — natural back-pressure, no explicit sleep needed.
+        if tx_send.send(TxCommand::Frame(regions)).is_err() {
+            warn!("TX thread exited unexpectedly — stopping capture loop");
+            break;
         }
 
         frame_counter += 1;
+        // Brief yield so other Tauri threads (sensor loop, IPC) get CPU time
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
 
-        // Adaptive sleep: shorter when many changes, longer when few
-        let sleep_ms = if dirty_rects.len() > 5 { 200 } else { 500 };
-        std::thread::sleep(std::time::Duration::from_millis(sleep_ms));
+    Ok(())
+}
+
+/// Serial TX thread: receives pre-extracted frame regions from the capture thread
+/// and writes them to the display over USB serial.
+///
+/// Owns the display exclusively — no Arc/Mutex needed.  Handles all reconnect
+/// scenarios (write-error and health-check) and signals the capture thread via
+/// `write_reconnected` when the differ must be reset.
+fn run_tx_loop(
+    mut display: Box<dyn LcdDisplay>,
+    rx: mpsc::Receiver<TxCommand>,
+    write_reconnected: Arc<AtomicBool>,
+    mut brightness: u8,
+    mut orientation: Orientation,
+) {
+    use std::sync::mpsc::RecvTimeoutError;
+    let mut health_counter: u32 = 0;
+
+    loop {
+        let cmd = match rx.recv_timeout(std::time::Duration::from_secs(2)) {
+            Ok(cmd) => cmd,
+            Err(RecvTimeoutError::Timeout) => {
+                // Idle for 2 s — run health check to detect silent USB disconnects
+                // (Windows can buffer serial writes so write errors are delayed).
+                if display.check_port_health() {
+                    info!("TX: USB reconnect via idle health check — restoring settings");
+                    std::thread::sleep(std::time::Duration::from_secs(2));
+                    if let Err(e) = display.set_brightness(brightness) {
+                        warn!("TX: failed to restore brightness: {}", e);
+                    }
+                    if let Err(e) = display.set_orientation(orientation) {
+                        warn!("TX: failed to restore orientation: {}", e);
+                    }
+                    write_reconnected.store(true, Ordering::Relaxed);
+                }
+                continue;
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                info!("TX: channel disconnected — exiting TX loop");
+                break;
+            }
+        };
+
+        match cmd {
+            TxCommand::Reinit { brightness: b, orientation: o } => {
+                brightness = b;
+                orientation = o;
+                info!(
+                    "TX: applying display settings (brightness={}, orientation={:?})",
+                    brightness, orientation
+                );
+                if let Err(e) = display.set_brightness(brightness) {
+                    warn!("TX: failed to set brightness: {}", e);
+                }
+                if let Err(e) = display.set_orientation(orientation) {
+                    warn!("TX: failed to set orientation: {}", e);
+                }
+                // Clear any stale reconnect flag from before the reinit
+                display.take_reconnected();
+            }
+
+            TxCommand::Frame(regions) => {
+                for region in &regions {
+                    if let Err(e) = display.display_rgba_image(
+                        &region.rgba,
+                        region.rect.x,
+                        region.rect.y,
+                        region.rect.w,
+                        region.rect.h,
+                    ) {
+                        warn!("TX: display update failed for {:?}: {}", region.rect, e);
+                        break;
+                    }
+                }
+
+                // Check for write-error reconnect (set inside serial.write_data's
+                // reconnect_with_retry path).  Re-apply settings so the display comes
+                // back at the right brightness/orientation, then notify capture thread.
+                if display.take_reconnected() {
+                    info!("TX: write-error reconnect detected — restoring settings");
+                    std::thread::sleep(std::time::Duration::from_secs(2));
+                    if let Err(e) = display.set_brightness(brightness) {
+                        warn!("TX: failed to restore brightness: {}", e);
+                    }
+                    if let Err(e) = display.set_orientation(orientation) {
+                        warn!("TX: failed to restore orientation: {}", e);
+                    }
+                    write_reconnected.store(true, Ordering::Relaxed);
+                }
+
+                // Periodic health check every 10 frames (in addition to the idle-timeout
+                // check above) to catch silent disconnects during active updates.
+                health_counter += 1;
+                if health_counter >= 10 {
+                    health_counter = 0;
+                    if display.check_port_health() {
+                        info!("TX: USB reconnect via periodic health check");
+                        std::thread::sleep(std::time::Duration::from_secs(2));
+                        if let Err(e) = display.set_brightness(brightness) {
+                            warn!("TX: failed to restore brightness: {}", e);
+                        }
+                        if let Err(e) = display.set_orientation(orientation) {
+                            warn!("TX: failed to restore orientation: {}", e);
+                        }
+                        write_reconnected.store(true, Ordering::Relaxed);
+                    }
+                }
+            }
+        }
     }
 }
 

@@ -1,6 +1,23 @@
 /// Image format conversion utilities.
 ///
 /// Ports `library/lcd/serialize.py` from the Python implementation.
+/// Convert RGBA pixel buffer to RGB565 little-endian bytes into an existing buffer.
+/// Clears `out` first. Avoids per-frame heap allocation when called in a loop.
+pub fn rgba_to_rgb565_le_into(rgba: &[u8], out: &mut Vec<u8>) {
+    out.clear();
+    let pixel_count = rgba.len() / 4;
+    if out.capacity() < pixel_count * 2 {
+        out.reserve(pixel_count * 2 - out.len());
+    }
+    for pixel in rgba.chunks_exact(4) {
+        let r = (pixel[0] >> 3) as u16;
+        let g = (pixel[1] >> 2) as u16;
+        let b = (pixel[2] >> 3) as u16;
+        let color: u16 = (r << 11) | (g << 5) | b;
+        out.extend_from_slice(&color.to_le_bytes());
+    }
+}
+
 /// Convert RGBA pixel buffer to RGB565 little-endian bytes (for Rev A, WeAct)
 pub fn rgba_to_rgb565_le(rgba: &[u8]) -> Vec<u8> {
     let pixel_count = rgba.len() / 4;
@@ -149,6 +166,23 @@ mod tests {
         let data = [1, 2, 3, 4, 5];
         let chunks: Vec<&[u8]> = chunked(&data, 2).collect();
         assert_eq!(chunks, vec![&[1, 2][..], &[3, 4][..], &[5][..]]);
+    }
+
+    #[test]
+    fn test_rgba_to_rgb565_le_into_matches_alloc_variant() {
+        let rgba = [255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255];
+        let expected = rgba_to_rgb565_le(&rgba);
+        let mut out = Vec::new();
+        rgba_to_rgb565_le_into(&rgba, &mut out);
+        assert_eq!(out, expected);
+    }
+
+    #[test]
+    fn test_rgba_to_rgb565_le_into_clears_previous_content() {
+        let rgba = [255u8, 255, 255, 255]; // white
+        let mut out = vec![0xDEu8; 16]; // pre-fill with garbage
+        rgba_to_rgb565_le_into(&rgba, &mut out);
+        assert_eq!(out, [0xFF, 0xFF]); // only the one converted pixel
     }
 
     #[test]
