@@ -32,6 +32,13 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
     )?;
     let reset_monitor =
         MenuItem::with_id(app, "reset_monitor", "Reset Monitor", true, None::<&str>)?;
+    let hide_taskbar = MenuItem::with_id(
+        app,
+        "hide_taskbar",
+        "Hide Taskbar Icon",
+        true,
+        None::<&str>,
+    )?;
     let boot_item = CheckMenuItem::with_id(
         app,
         "toggle_boot",
@@ -55,6 +62,7 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
             &show_monitor,
             &hide_monitor,
             &reset_monitor,
+            &hide_taskbar,
             &boot_item,
             &configure,
             &template_editor,
@@ -79,6 +87,12 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
                 info!("Reset Monitor requested from tray");
                 if let Some(sender) = app.try_state::<crate::RestartSender>() {
                     let _ = sender.0.send(());
+                }
+            }
+            "hide_taskbar" => {
+                if let Some(window) = app.get_webview_window("monitor") {
+                    info!("Explicitly hiding monitor from taskbar via tray menu");
+                    let _ = window.set_skip_taskbar(true);
                 }
             }
             "toggle_boot" => {

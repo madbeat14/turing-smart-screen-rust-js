@@ -118,6 +118,7 @@ fn main() {
             if let Some(monitor_win) = app_handle.get_webview_window("monitor") {
                 let _ = monitor_win.set_position(tauri::PhysicalPosition::new(-9999, -9999));
                 let _ = monitor_win.show();
+                let _ = monitor_win.set_skip_taskbar(true);
             }
 
             // Set up system tray
