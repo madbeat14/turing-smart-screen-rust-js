@@ -3,6 +3,7 @@
 
 pub mod config;
 pub mod display;
+pub mod error;
 pub mod lhm;
 pub mod screenshot;
 pub mod sensors;
@@ -14,14 +15,15 @@ pub mod window_state;
 use display::diff::{DirtyRect, FrameDiffer};
 use display::rgb565::rgba_to_rgb565_le_into;
 use display::{create_display, LcdDisplay, Orientation};
+use error::AppError;
 use log::{debug, error, info, warn};
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 use tauri::Manager;
 
-/// Wrapper so we can store the restart sender in Tauri managed state.
-pub struct RestartSender(pub mpsc::Sender<()>);
+/// Wrapper so we can store the bounded restart sender in Tauri managed state.
+pub struct RestartSender(pub mpsc::SyncSender<()>);
 
 /// A dirty display region with pre-extracted RGBA pixel data, ready to send over serial.
 struct RegionPayload {
@@ -66,10 +68,10 @@ pub fn run() {
     let display_config = app_config.display.clone();
     let shared_config = std::sync::Arc::new(std::sync::Mutex::new(app_config));
 
-    // Channel for signaling the display loop to restart (reload config, re-apply brightness/orientation)
-    let (restart_tx, restart_rx) = mpsc::channel::<()>();
+    // Bounded channel (capacity 1) for signaling the display loop to restart
+    let (restart_tx, restart_rx) = mpsc::sync_channel::<()>(1);
 
-    tauri::Builder::default()
+    let app = match tauri::Builder::default()
         .manage(shared_config)
         .manage(RestartSender(restart_tx))
         .invoke_handler(tauri::generate_handler![
@@ -100,8 +102,6 @@ pub fn run() {
             let app_handle = app.handle().clone();
 
             // Start LibreHardwareMonitor for CPU/GPU temperature sensors.
-            // LHM runs as a hidden background process, outputs JSON to stdout.
-            // The returned Arc is updated every ~1s by a reader thread.
             let lhm_sensors = if let Ok(resource_dir) = app.path().resource_dir() {
                 lhm::start_lhm(&resource_dir)
             } else {
@@ -111,8 +111,6 @@ pub fn run() {
 
             // Start the monitor window off-screen, then make it visible so
             // WebView2 keeps rendering (needed for screenshot capture).
-            // The window starts with visible:false in tauri.conf.json to
-            // prevent a brief flash on the desktop at startup.
             if let Some(monitor_win) = app_handle.get_webview_window("monitor") {
                 let _ = monitor_win.set_position(tauri::PhysicalPosition::new(-9999, -9999));
                 let _ = monitor_win.show();
@@ -130,7 +128,7 @@ pub fn run() {
                 sensors::sensor_loop(sensor_handle, lhm_sensors);
             });
 
-            // Spawn display loop in a dedicated thread (serial I/O is blocking)
+            // Spawn display loop in a dedicated thread
             let display_handle = app_handle.clone();
             let config = display_config.clone();
             let loop_shared_config = app.state::<SharedConfig>().inner().clone();
@@ -145,14 +143,21 @@ pub fn run() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("error while building tauri application")
-        .run(|_app, event| {
-            if let tauri::RunEvent::Exit = event {
-                info!("Shutting down — stopping LibreHardwareMonitor");
-                display::serial::signal_shutdown();
-                lhm::stop_lhm();
-            }
-        });
+    {
+        Ok(app) => app,
+        Err(e) => {
+            error!("Fatal error while building Tauri application: {}", e);
+            return;
+        }
+    };
+
+    app.run(|_app, event| {
+        if let tauri::RunEvent::Exit = event {
+            info!("Shutting down — stopping LibreHardwareMonitor");
+            display::serial::signal_shutdown();
+            lhm::stop_lhm();
+        }
+    });
 }
 
 /// Main display loop: sets up the display, spawns the serial TX thread, then runs
@@ -210,8 +215,7 @@ fn run_display_loop(
     let screen_h = display.get_height();
     info!("Display ready: {}x{}", screen_w, screen_h);
 
-    // AtomicBool: TX thread sets this after a write-error reconnect so the capture
-    // thread knows to reset the frame differ on the next iteration.
+    // AtomicBool: TX thread sets this after a write-error reconnect
     let write_reconnected = Arc::new(AtomicBool::new(false));
     let write_reconnected_tx = write_reconnected.clone();
 
@@ -237,22 +241,29 @@ fn run_display_loop(
     let mut frame_counter: u64 = 0;
 
     loop {
-        // Check for restart signal
-        if restart_rx.try_recv().is_ok() {
+        // Drain all accumulated restart signals
+        let mut restart_requested = false;
+        while restart_rx.try_recv().is_ok() {
+            restart_requested = true;
+        }
+
+        if restart_requested {
             info!("Display restart signal received — reloading config");
-            let (new_brightness, new_orientation) = if let Ok(cfg) = shared_config.lock() {
-                let o = if cfg.display.display_reverse {
+            let (new_brightness, new_orientation) = {
+                let guard = match shared_config.lock() {
+                    Ok(g) => g,
+                    Err(p) => p.into_inner(),
+                };
+                let o = if guard.display.display_reverse {
                     Orientation::ReverseLandscape
                 } else {
                     Orientation::Landscape
                 };
                 info!(
                     "Display config reapplied (brightness={}, reverse={})",
-                    cfg.display.brightness, cfg.display.display_reverse
+                    guard.display.brightness, guard.display.display_reverse
                 );
-                (cfg.display.brightness, o)
-            } else {
-                (config.brightness, orientation)
+                (guard.display.brightness, o)
             };
             let _ = tx_send.send(TxCommand::Reinit {
                 brightness: new_brightness,
@@ -472,11 +483,11 @@ pub struct ClientGeneralConfig {
 }
 
 #[tauri::command]
-fn get_config(config: tauri::State<SharedConfig>) -> Result<ClientConfig, String> {
-    let cfg = config.lock().map_err(|e| {
-        error!("Config lock failed: {}", e);
-        "Failed to read configuration".to_string()
-    })?;
+fn get_config(config: tauri::State<SharedConfig>) -> Result<ClientConfig, AppError> {
+    let cfg = match config.lock() {
+        Ok(g) => g,
+        Err(p) => p.into_inner(),
+    };
     Ok(ClientConfig {
         config: ClientGeneralConfig {
             com_port: cfg.config.com_port.clone(),
@@ -500,26 +511,16 @@ fn get_config(config: tauri::State<SharedConfig>) -> Result<ClientConfig, String
 fn save_config(
     config: tauri::State<SharedConfig>,
     new_config: config::AppConfig,
-) -> Result<(), String> {
-    // Validate before saving
+) -> Result<(), AppError> {
     new_config.validate()?;
 
-    // Save to file in data dir
     let config_path = config::AppConfig::config_path();
-    let yaml = serde_yaml::to_string(&new_config).map_err(|e| {
-        error!("Config serialization failed: {}", e);
-        "Failed to serialize configuration".to_string()
-    })?;
-    std::fs::write(&config_path, &yaml).map_err(|e| {
-        error!("Config write failed to {}: {}", config_path.display(), e);
-        "Failed to write configuration file".to_string()
-    })?;
+    new_config.save_atomic(&config_path)?;
 
-    // Update in-memory config
-    let mut cfg = config.lock().map_err(|e| {
-        error!("Config lock failed: {}", e);
-        "Failed to update configuration".to_string()
-    })?;
+    let mut cfg = match config.lock() {
+        Ok(g) => g,
+        Err(p) => p.into_inner(),
+    };
     *cfg = new_config;
 
     info!("Configuration saved to {}", config_path.display());
@@ -527,26 +528,26 @@ fn save_config(
 }
 
 #[tauri::command]
-fn restart_display(sender: tauri::State<RestartSender>) -> Result<(), String> {
-    sender.0.send(()).map_err(|e| e.to_string())?;
+fn restart_display(sender: tauri::State<RestartSender>) -> Result<(), AppError> {
+    let _ = sender.0.try_send(());
     info!("Display restart signal sent");
     Ok(())
 }
 
 #[tauri::command]
-fn reload_monitor(app: tauri::AppHandle) -> Result<(), String> {
+fn reload_monitor(app: tauri::AppHandle) -> Result<(), AppError> {
     if let Some(win) = app.get_webview_window("monitor") {
         win.eval("window.location.reload();")
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| AppError::WebviewError(e.to_string()))?;
         info!("Monitor webview reloaded");
     }
     Ok(())
 }
 
 #[tauri::command]
-fn list_serial_ports() -> Result<Vec<String>, String> {
-    let ports = serialport::available_ports().map_err(|e| e.to_string())?;
-    Ok(ports.iter().map(|p| p.port_name.clone()).collect())
+fn list_serial_ports() -> Result<Vec<String>, AppError> {
+    let ports = serialport::available_ports().map_err(|e| AppError::SerialError(e.to_string()))?;
+    Ok(ports.into_iter().map(|p| p.port_name).collect())
 }
 
 #[tauri::command]
@@ -555,17 +556,17 @@ fn get_run_on_startup() -> bool {
 }
 
 #[tauri::command]
-fn set_run_on_startup(enable: bool) -> Result<(), String> {
-    startup::set_run_on_startup(enable)
+fn set_run_on_startup(enable: bool) -> Result<(), AppError> {
+    startup::set_run_on_startup(enable).map_err(AppError::StartupError)
 }
 
 #[tauri::command]
-async fn open_editor(app: tauri::AppHandle) -> Result<(), String> {
+async fn open_editor(app: tauri::AppHandle) -> Result<(), AppError> {
     let handle = app.clone();
     app.run_on_main_thread(move || {
         tray::open_editor_window(&handle);
     })
-    .map_err(|e| format!("Failed to open editor: {}", e))
+    .map_err(|e| AppError::WebviewError(format!("Failed to open editor: {}", e)))
 }
 
 /// Initialize logger that writes to a file in the data dir.
@@ -672,13 +673,8 @@ mod tests {
 
     #[test]
     fn test_epoch_days_to_date_known_dates() {
-        // 1970-01-01 is epoch day 0
         assert_eq!(epoch_days_to_date(0), (1970, 1, 1));
-        // 2000-01-01 is epoch day 10957
         assert_eq!(epoch_days_to_date(10957), (2000, 1, 1));
-        // 2024-02-29 (leap day)
-        // 1970 to 2024 is 54 years (with 13 leap years between 1972 and 2020: 72,76,80,84,88,92,96,00,04,08,12,16,20)
-        // 54 * 365 + 13 + 31 (Jan) + 28 = 19710 + 13 + 59 = 19782
         assert_eq!(epoch_days_to_date(19782), (2024, 2, 29));
     }
 }

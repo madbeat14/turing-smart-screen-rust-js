@@ -22,12 +22,13 @@ pub struct FrameDiffer {
 }
 
 impl FrameDiffer {
-    /// Create a new frame differ for the given screen dimensions
+    /// Create a new frame differ for the given screen dimensions.
+    /// Clamps dimensions and tile size to >= 1 to prevent division by zero.
     pub fn new(screen_width: u16, screen_height: u16, tile_size: u16) -> Self {
         Self {
-            tile_size,
-            screen_width,
-            screen_height,
+            tile_size: tile_size.max(1),
+            screen_width: screen_width.max(1),
+            screen_height: screen_height.max(1),
             prev_frame: Vec::new(),
         }
     }
