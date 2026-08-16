@@ -28,8 +28,40 @@ pub fn capture_webview_screenshot(
 
     #[cfg(not(target_os = "windows"))]
     {
+        let _ = (_window, target_w, target_h);
         log::warn!("Screenshot capture not implemented for this platform, using placeholder");
         Ok(vec![0u8; (target_w * target_h * 4) as usize])
+    }
+}
+
+/// RAII Guard to ensure all Win32 GDI handles are released even on early returns or errors.
+#[cfg(target_os = "windows")]
+struct GdiContextGuard {
+    hwnd: windows::Win32::Foundation::HWND,
+    hdc_window: windows::Win32::Graphics::Gdi::HDC,
+    hdc_mem: windows::Win32::Graphics::Gdi::HDC,
+    hbmp: windows::Win32::Graphics::Gdi::HBITMAP,
+    old_bmp: windows::Win32::Graphics::Gdi::HGDIOBJ,
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for GdiContextGuard {
+    fn drop(&mut self) {
+        unsafe {
+            use windows::Win32::Graphics::Gdi::{DeleteDC, DeleteObject, ReleaseDC, SelectObject};
+            if !self.old_bmp.is_invalid() && !self.hdc_mem.is_invalid() {
+                SelectObject(self.hdc_mem, self.old_bmp);
+            }
+            if !self.hbmp.is_invalid() {
+                let _ = DeleteObject(self.hbmp.into());
+            }
+            if !self.hdc_mem.is_invalid() {
+                let _ = DeleteDC(self.hdc_mem);
+            }
+            if !self.hdc_window.is_invalid() {
+                ReleaseDC(Some(self.hwnd), self.hdc_window);
+            }
+        }
     }
 }
 
@@ -38,8 +70,8 @@ pub fn capture_webview_screenshot(
 fn capture_win32(window: &tauri::WebviewWindow, target_w: u32, target_h: u32) -> Result<Vec<u8>> {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::Graphics::Gdi::{
-        CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC, GetDIBits,
-        ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
+        CreateCompatibleBitmap, CreateCompatibleDC, GetDC, GetDIBits,
+        SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
     };
     use windows::Win32::Storage::Xps::{PrintWindow, PRINT_WINDOW_FLAGS};
     use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
@@ -49,14 +81,6 @@ fn capture_win32(window: &tauri::WebviewWindow, target_w: u32, target_h: u32) ->
         .map_err(|e| anyhow!("Failed to get HWND: {}", e))?;
     let hwnd = HWND(raw_hwnd.0 as *mut _);
 
-    // SAFETY: All Win32 GDI calls below operate on handles obtained within this block.
-    // - `hwnd` is a valid window handle from Tauri's WebviewWindow::hwnd(), which
-    //   guarantees validity for the duration of this function (window outlives this call).
-    // - `hdc_window` is validated (is_invalid check) before use; released via ReleaseDC.
-    // - `hdc_mem` and `hbmp` are validated after creation; cleaned up via DeleteDC/DeleteObject.
-    // - The pixel buffer is allocated to exactly win_w * win_h * 4 bytes, matching the
-    //   BITMAPINFOHEADER dimensions, so GetDIBits cannot write out of bounds.
-    // - A cleanup guard ensures GDI resources are released even on early returns.
     unsafe {
         // Get client area dimensions
         let mut client_rect = mem::zeroed::<windows::Win32::Foundation::RECT>();
@@ -79,12 +103,14 @@ fn capture_win32(window: &tauri::WebviewWindow, target_w: u32, target_h: u32) ->
 
         let hdc_mem = CreateCompatibleDC(Some(hdc_window));
         if hdc_mem.is_invalid() {
+            use windows::Win32::Graphics::Gdi::ReleaseDC;
             ReleaseDC(Some(hwnd), hdc_window);
             return Err(anyhow!("CreateCompatibleDC failed"));
         }
 
         let hbmp = CreateCompatibleBitmap(hdc_window, win_w as i32, win_h as i32);
         if hbmp.is_invalid() {
+            use windows::Win32::Graphics::Gdi::{DeleteDC, ReleaseDC};
             let _ = DeleteDC(hdc_mem);
             ReleaseDC(Some(hwnd), hdc_window);
             return Err(anyhow!("CreateCompatibleBitmap failed"));
@@ -92,13 +118,19 @@ fn capture_win32(window: &tauri::WebviewWindow, target_w: u32, target_h: u32) ->
 
         let old_bmp = SelectObject(hdc_mem, hbmp.into());
 
+        // Establish RAII guard for the allocated GDI resources
+        let _guard = GdiContextGuard {
+            hwnd,
+            hdc_window,
+            hdc_mem,
+            hbmp,
+            old_bmp,
+        };
+
         // PW_CLIENTONLY (0x1) | PW_RENDERFULLCONTENT (0x2) = 0x3
         // Captures only the client area with composited DirectX/WebView2 content.
-        // Works even when window is off-screen (PrintWindow asks the window to
-        // paint itself, unlike BitBlt which copies from the screen buffer).
         let pw_ok = PrintWindow(hwnd, hdc_mem, PRINT_WINDOW_FLAGS(0x3));
         if !pw_ok.as_bool() {
-            // Try without PW_RENDERFULLCONTENT as fallback
             log::warn!("PrintWindow with PW_RENDERFULLCONTENT failed, trying PW_CLIENTONLY only");
             let _ = PrintWindow(hwnd, hdc_mem, PRINT_WINDOW_FLAGS(0x1));
         }
@@ -128,12 +160,6 @@ fn capture_win32(window: &tauri::WebviewWindow, target_w: u32, target_h: u32) ->
             DIB_RGB_COLORS,
         );
 
-        // Cleanup GDI objects (always runs, regardless of early returns below)
-        SelectObject(hdc_mem, old_bmp);
-        let _ = DeleteObject(hbmp.into());
-        let _ = DeleteDC(hdc_mem);
-        ReleaseDC(Some(hwnd), hdc_window);
-
         // Convert BGRA → RGBA
         for pixel in pixels.chunks_exact_mut(4) {
             pixel.swap(0, 2);
@@ -150,5 +176,25 @@ fn capture_win32(window: &tauri::WebviewWindow, target_w: u32, target_h: u32) ->
             let resized = image::imageops::resize(&img, target_w, target_h, FilterType::Triangle);
             Ok(resized.into_raw())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_pixel_buffer_calculation() {
+        let w = 480u32;
+        let h = 320u32;
+        let expected_len = (w * h * 4) as usize;
+        assert_eq!(expected_len, 614400);
+    }
+
+    #[test]
+    fn test_bgra_to_rgba_swap() {
+        let mut pixels = vec![255u8, 128, 64, 255]; // B=255, G=128, R=64, A=255
+        for pixel in pixels.chunks_exact_mut(4) {
+            pixel.swap(0, 2);
+        }
+        assert_eq!(pixels, vec![64u8, 128, 255, 255]); // R=64, G=128, B=255, A=255
     }
 }

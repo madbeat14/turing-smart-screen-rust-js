@@ -64,7 +64,7 @@ impl RevADisplay {
     /// Encode a 6-byte command packet.
     ///
     /// Packet format from Python:
-    /// ```
+    /// ```text
     /// byte[0] = x >> 2
     /// byte[1] = ((x & 3) << 6) + (y >> 4)
     /// byte[2] = ((y & 15) << 4) + (ex >> 6)

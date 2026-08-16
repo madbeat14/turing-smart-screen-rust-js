@@ -65,11 +65,21 @@ const TASK_XML_TEMPLATE: &str = r#"<?xml version="1.0" encoding="UTF-16"?>
   </Actions>
 </Task>"#;
 
+#[cfg(target_os = "windows")]
+fn system32_exe(name: &str) -> std::path::PathBuf {
+    if let Ok(sys_root) = env::var("SystemRoot") {
+        std::path::PathBuf::from(sys_root).join("System32").join(name)
+    } else {
+        std::path::PathBuf::from(r"C:\Windows\System32").join(name)
+    }
+}
+
 /// Check if the startup task exists in Windows Task Scheduler.
 pub fn get_run_on_startup() -> bool {
     #[cfg(target_os = "windows")]
     {
-        let output = Command::new("schtasks")
+        let schtasks_path = system32_exe("schtasks.exe");
+        let output = Command::new(schtasks_path)
             .args(["/Query", "/TN", TASK_NAME])
             .creation_flags(CREATE_NO_WINDOW)
             .output();
@@ -135,9 +145,10 @@ fn create_startup_task() -> Result<(), String> {
         }
 
         let path_str = temp_xml_path.to_string_lossy().to_string();
+        let schtasks_path = system32_exe("schtasks.exe");
 
         // App already runs as admin, so schtasks should succeed directly
-        let output = Command::new("schtasks")
+        let output = Command::new(schtasks_path)
             .args(["/Create", "/TN", TASK_NAME, "/XML", &path_str, "/F"])
             .creation_flags(CREATE_NO_WINDOW)
             .output();
@@ -172,7 +183,8 @@ fn create_startup_task() -> Result<(), String> {
 fn delete_startup_task() -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        let output = Command::new("schtasks")
+        let schtasks_path = system32_exe("schtasks.exe");
+        let output = Command::new(schtasks_path)
             .args(["/Delete", "/TN", TASK_NAME, "/F"])
             .creation_flags(CREATE_NO_WINDOW)
             .output();
@@ -201,3 +213,23 @@ fn delete_startup_task() -> Result<(), String> {
         Err("Startup task management is only supported on Windows".into())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_xml_escape() {
+        assert_eq!(xml_escape("Foo & Bar"), "Foo &amp; Bar");
+        assert_eq!(xml_escape("<tag>\"'"), "&lt;tag&gt;&quot;&apos;");
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn test_system32_exe_path() {
+        let p = system32_exe("schtasks.exe");
+        assert!(p.to_string_lossy().to_lowercase().contains("system32"));
+        assert!(p.to_string_lossy().ends_with("schtasks.exe"));
+    }
+}
+

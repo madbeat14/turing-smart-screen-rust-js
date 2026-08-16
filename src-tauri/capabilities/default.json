@@ -1,11 +1,19 @@
 {
+  "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Minimal capabilities for the main and settings windows",
-  "windows": ["monitor", "settings"],
+  "description": "Capabilities for monitor, settings, and editor windows",
+  "windows": [
+    "monitor",
+    "settings",
+    "editor"
+  ],
   "permissions": [
     "core:event:default",
+    "core:event:allow-listen",
+    "core:event:allow-emit",
     "core:window:default",
     "core:webview:default",
     "core:tray:default"
   ]
 }
+

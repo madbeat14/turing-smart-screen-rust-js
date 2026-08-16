@@ -765,3 +765,43 @@ pub fn reset_builtin_template(name: String) -> Result<(), String> {
     info!("Built-in template '{}' reset to default", name);
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_template_name() {
+        assert!(validate_template_name("my-template_01").is_ok());
+        assert!(validate_template_name("v1").is_ok());
+        assert!(validate_template_name("").is_err());
+        assert!(validate_template_name("MyTemplate").is_err()); // uppercase rejected
+        assert!(validate_template_name("../traversal").is_err());
+        assert!(validate_template_name("foo/bar").is_err());
+        assert!(validate_template_name("foo\\bar").is_err());
+    }
+
+    #[test]
+    fn test_is_builtin() {
+        assert!(is_builtin("v1"));
+        assert!(is_builtin("v2"));
+        assert!(!is_builtin("custom"));
+    }
+
+    #[test]
+    fn test_format_display_name() {
+        assert_eq!(format_display_name("cpu-temp_monitor"), "Cpu Temp Monitor");
+        assert_eq!(format_display_name("v1"), "V1");
+    }
+
+    #[test]
+    fn test_generate_default_manifest() {
+        let manifest_str = generate_default_manifest("v2", "my-cloned");
+        let parsed: serde_json::Value = serde_json::from_str(&manifest_str).expect("Valid JSON");
+        assert_eq!(parsed["name"], "my-cloned");
+        assert_eq!(parsed["canvasWidth"], 480);
+        assert_eq!(parsed["canvasHeight"], 320);
+        assert!(parsed["widgets"].as_array().unwrap().len() >= 6);
+    }
+}
+

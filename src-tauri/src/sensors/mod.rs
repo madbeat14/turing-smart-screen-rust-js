@@ -114,7 +114,7 @@ pub fn sensor_loop(app_handle: AppHandle, lhm_state: Arc<Mutex<LhmSensorData>>) 
             net_download: net_data.download_rate,
         };
 
-        if let Err(e) = app_handle.emit("sensor-update", &data) {
+        if let Err(e) = app_handle.emit_to("monitor", "sensor-update", &data) {
             warn!("Failed to emit sensor data: {}", e);
         }
 

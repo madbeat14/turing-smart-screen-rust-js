@@ -769,8 +769,17 @@
 
   // ── Window State Persistence ────────────────────────────────
 
+  function getAppWindow() {
+    if (window.__TAURI__ && window.__TAURI__.webviewWindow && window.__TAURI__.webviewWindow.getCurrentWebviewWindow) {
+      return window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
+    }
+    if (window.__TAURI__ && window.__TAURI__.window && window.__TAURI__.window.getCurrent) {
+      return window.__TAURI__.window.getCurrent();
+    }
+    return null;
+  }
+
   function initWindowState() {
-    var tauriWindow = window.__TAURI__.window;
     var leftPanel = document.getElementById('left-panel');
     var rightPanel = document.getElementById('props-panel');
 
@@ -792,7 +801,19 @@
     function scheduleSave() {
       clearTimeout(saveTimer);
       saveTimer = setTimeout(function() {
-        var currentWindow = tauriWindow.getCurrent();
+        var currentWindow = getAppWindow();
+        if (!currentWindow) {
+          invoke('save_window_state', {
+            label: 'editor',
+            state: {
+              width: window.innerWidth,
+              height: window.innerHeight,
+              leftPanelWidth: leftPanel ? leftPanel.offsetWidth : 200,
+              rightPanelWidth: rightPanel ? rightPanel.offsetWidth : 280
+            }
+          }).catch(function() {});
+          return;
+        }
         Promise.all([
           currentWindow.outerSize(),
           currentWindow.scaleFactor()
@@ -808,7 +829,17 @@
               rightPanelWidth: rightPanel ? rightPanel.offsetWidth : 280
             }
           }).catch(function() {});
-        }).catch(function() {});
+        }).catch(function() {
+          invoke('save_window_state', {
+            label: 'editor',
+            state: {
+              width: window.innerWidth,
+              height: window.innerHeight,
+              leftPanelWidth: leftPanel ? leftPanel.offsetWidth : 200,
+              rightPanelWidth: rightPanel ? rightPanel.offsetWidth : 280
+            }
+          }).catch(function() {});
+        });
       }, 500);
     }
 
@@ -816,10 +847,7 @@
 
     // Also save when window is about to close
     window.addEventListener('beforeunload', function() {
-      var currentWindow = tauriWindow.getCurrent();
       try {
-        // Sync save attempt — may not complete if window closes fast,
-        // but the resize handler should have caught the latest size already
         invoke('save_window_state', {
           label: 'editor',
           state: {

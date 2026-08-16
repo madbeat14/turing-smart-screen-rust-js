@@ -62,13 +62,23 @@ pub fn start_lhm(resource_dir: &std::path::Path) -> Arc<Mutex<LhmSensorData>> {
     shared
 }
 
+#[cfg(target_os = "windows")]
+fn system32_exe(name: &str) -> std::path::PathBuf {
+    if let Ok(sys_root) = std::env::var("SystemRoot") {
+        std::path::PathBuf::from(sys_root).join("System32").join(name)
+    } else {
+        std::path::PathBuf::from(r"C:\Windows\System32").join(name)
+    }
+}
+
 /// Kill any existing LhmService.exe processes.
 fn kill_existing_lhm() {
     #[cfg(target_os = "windows")]
     {
         if is_lhm_running() {
             info!("Killing existing LhmService.exe before launching our own");
-            let _ = Command::new("taskkill")
+            let taskkill_path = system32_exe("taskkill.exe");
+            let _ = Command::new(taskkill_path)
                 .args(["/IM", "LhmService.exe", "/F"])
                 .creation_flags(CREATE_NO_WINDOW)
                 .output();
@@ -198,7 +208,8 @@ fn read_sensor_output(stdout: std::process::ChildStdout, shared: Arc<Mutex<LhmSe
 fn is_lhm_running() -> bool {
     #[cfg(target_os = "windows")]
     {
-        match Command::new("tasklist")
+        let tasklist_path = system32_exe("tasklist.exe");
+        match Command::new(tasklist_path)
             .args(["/FI", "IMAGENAME eq LhmService.exe", "/NH"])
             .creation_flags(CREATE_NO_WINDOW)
             .output()
@@ -233,9 +244,11 @@ pub fn stop_lhm() {
     #[cfg(target_os = "windows")]
     {
         info!("Stopping LHM service via taskkill");
-        let _ = Command::new("taskkill")
+        let taskkill_path = system32_exe("taskkill.exe");
+        let _ = Command::new(taskkill_path)
             .args(["/IM", "LhmService.exe", "/F"])
             .creation_flags(CREATE_NO_WINDOW)
             .output();
     }
 }
+

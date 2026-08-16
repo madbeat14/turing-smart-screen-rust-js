@@ -16,7 +16,10 @@
       "assetProtocol": {
         "enable": true,
         "scope": {
-          "allow": ["**/*.js", "**/*.css"]
+          "allow": [
+            "$APPDATA/Turing Smart Screen/templates/**",
+            "$RESOURCE/templates/**"
+          ]
         }
       }
     },

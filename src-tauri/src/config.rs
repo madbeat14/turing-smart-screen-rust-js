@@ -244,3 +244,49 @@ impl Default for AppConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_config_validates() {
+        let config = AppConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_invalid_com_port() {
+        let mut config = AppConfig::default();
+        config.config.com_port = "INVALID_PORT".to_string();
+        assert!(config.validate().is_err());
+
+        config.config.com_port = "COM3".to_string();
+        assert!(config.validate().is_ok());
+
+        config.config.com_port = "/dev/ttyUSB0".to_string();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_invalid_theme_name() {
+        let mut config = AppConfig::default();
+        config.config.theme = "../escape".to_string();
+        assert!(config.validate().is_err());
+
+        config.config.theme = "custom-theme_01".to_string();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_invalid_weather_coordinates() {
+        let mut config = AppConfig::default();
+        config.config.weather_latitude = f64::NAN;
+        assert!(config.validate().is_err());
+
+        config.config.weather_latitude = 45.0;
+        config.config.weather_longitude = f64::INFINITY;
+        assert!(config.validate().is_err());
+    }
+}
+
