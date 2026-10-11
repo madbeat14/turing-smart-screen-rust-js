@@ -13,6 +13,11 @@ pub fn signal_shutdown() {
     SHUTDOWN.store(true, Ordering::Relaxed);
 }
 
+/// Check if shutdown has been signalled.
+pub fn is_shutdown() -> bool {
+    SHUTDOWN.load(Ordering::Relaxed)
+}
+
 /// Serial port wrapper with error recovery and auto-detection
 pub struct SerialConnection {
     port: Box<dyn SerialPort>,

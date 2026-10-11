@@ -198,6 +198,8 @@ impl LcdDisplay for WeActDisplay {
             return Ok(());
         }
 
+        let cropped_rgba = super::crop_rgba_if_needed(rgba, w, actual_w, actual_h);
+
         let x1 = x + actual_w - 1;
         let y1 = y + actual_h - 1;
 
@@ -217,7 +219,7 @@ impl LcdDisplay for WeActDisplay {
         self.serial.write_data(&header)?;
 
         // Convert to RGB565 little-endian
-        let rgb565 = rgba_to_rgb565_le(rgba);
+        let rgb565 = rgba_to_rgb565_le(&cropped_rgba);
 
         // Send in chunks of display_width * 4 bytes
         let chunk_size = (display_w as usize) * 4;

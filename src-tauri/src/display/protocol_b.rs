@@ -231,16 +231,22 @@ impl LcdDisplay for RevBDisplay {
         let actual_w = w.min(display_w.saturating_sub(x));
         let actual_h = h.min(display_h.saturating_sub(y));
 
+        if actual_w == 0 || actual_h == 0 {
+            return Ok(());
+        }
+
+        let cropped_rgba = super::crop_rgba_if_needed(rgba, w, actual_w, actual_h);
+
         // For reverse orientations, rotate image 180° in software and flip coordinates
         let (rgba_data, x0, y0, x1, y1) = match self.orientation {
             Orientation::Portrait | Orientation::Landscape => {
-                (rgba.to_vec(), x, y, x + actual_w - 1, y + actual_h - 1)
+                (cropped_rgba, x, y, x + actual_w - 1, y + actual_h - 1)
             }
             Orientation::ReversePortrait | Orientation::ReverseLandscape => {
-                let rotated = Self::rotate_180(rgba, actual_w, actual_h);
+                let rotated = Self::rotate_180(&cropped_rgba, actual_w, actual_h);
                 let rx = display_w.saturating_sub(x).saturating_sub(actual_w);
                 let ry = display_h.saturating_sub(y).saturating_sub(actual_h);
-                (rotated, rx, ry, rx + actual_w - 1, ry + actual_h - 1)
+                (std::borrow::Cow::Owned(rotated), rx, ry, rx + actual_w - 1, ry + actual_h - 1)
             }
         };
 

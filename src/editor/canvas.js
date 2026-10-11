@@ -177,7 +177,9 @@ function createCanvas(containerEl, callbacks) {
       if (callbacks.onMove) callbacks.onMove(dragState.widgetId, newX, newY);
     } else if (dragState.type === 'resize') {
       var handle = dragState.handle;
-      var typeInfo = WIDGET_TYPES[widgets.find(function(w) { return w.id === dragState.widgetId; }).type];
+      var selWidget = widgets.find(function(w) { return w.id === dragState.widgetId; });
+      if (!selWidget) return;
+      var typeInfo = WIDGET_TYPES[selWidget.type];
       var minW = typeInfo ? typeInfo.minWidth : 20;
       var minH = typeInfo ? typeInfo.minHeight : 20;
       var newX2 = dragState.origX, newY2 = dragState.origY;

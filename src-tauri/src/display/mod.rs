@@ -77,6 +77,35 @@ pub trait LcdDisplay: Send {
     fn check_port_health(&mut self) -> bool;
 }
 
+use std::borrow::Cow;
+
+/// Crop an RGBA image buffer if actual dimensions differ from source dimensions.
+/// Returns a borrowed slice when no cropping is needed (actual_w == src_w && actual_h == src_h),
+/// avoiding unnecessary heap allocations.
+pub fn crop_rgba_if_needed(rgba: &[u8], src_w: u16, actual_w: u16, actual_h: u16) -> Cow<'_, [u8]> {
+    let src_w = src_w as usize;
+    let actual_w = actual_w as usize;
+    let actual_h = actual_h as usize;
+
+    if actual_w * actual_h * 4 == rgba.len() && actual_w == src_w {
+        return Cow::Borrowed(rgba);
+    }
+
+    let mut cropped = Vec::with_capacity(actual_w * actual_h * 4);
+    let row_bytes = actual_w * 4;
+    let stride = src_w * 4;
+
+    for row in 0..actual_h {
+        let start = row * stride;
+        let end = start + row_bytes;
+        if end <= rgba.len() {
+            cropped.extend_from_slice(&rgba[start..end]);
+        }
+    }
+
+    Cow::Owned(cropped)
+}
+
 /// Display dimensions for known hardware
 pub fn dimensions_for_sub_revision(sub: SubRevision) -> (u16, u16) {
     match sub {
@@ -127,5 +156,40 @@ pub fn create_display(config: &DisplayConfig) -> Result<Box<dyn LcdDisplay>> {
             Ok(Box::new(display))
         }
         _ => Err(anyhow!("Unknown display revision: '{}'", revision)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_crop_rgba_if_needed_borrowed() {
+        let rgba = vec![128u8; 10 * 10 * 4];
+        let res = crop_rgba_if_needed(&rgba, 10, 10, 10);
+        assert!(matches!(res, Cow::Borrowed(_)));
+        assert_eq!(res.len(), 400);
+    }
+
+    #[test]
+    fn test_crop_rgba_if_needed_cropped() {
+        // 4x4 image, each row has a different pixel value
+        let mut rgba = vec![0u8; 4 * 4 * 4];
+        for y in 0..4 {
+            for x in 0..4 {
+                let idx = (y * 4 + x) * 4;
+                rgba[idx] = y as u8;
+            }
+        }
+        // Crop to 2x2
+        let res = crop_rgba_if_needed(&rgba, 4, 2, 2);
+        assert!(matches!(res, Cow::Owned(_)));
+        assert_eq!(res.len(), 2 * 2 * 4);
+        // Row 0
+        assert_eq!(res[0], 0);
+        assert_eq!(res[4], 0);
+        // Row 1
+        assert_eq!(res[8], 1);
+        assert_eq!(res[12], 1);
     }
 }

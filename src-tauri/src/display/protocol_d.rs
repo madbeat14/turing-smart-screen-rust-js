@@ -145,10 +145,12 @@ impl LcdDisplay for RevDDisplay {
             return Ok(());
         }
 
+        let cropped_rgba = super::crop_rgba_if_needed(rgba, w, actual_w, actual_h);
+
         // For landscape orientations, rotate image 270° and recalculate coordinates
         let (rgba_data, x0, y0, x1, y1, _img_w) = match self.orientation {
             Orientation::Portrait | Orientation::ReversePortrait => (
-                rgba.to_vec(),
+                cropped_rgba,
                 x,
                 y,
                 x + actual_w - 1,
@@ -156,13 +158,13 @@ impl LcdDisplay for RevDDisplay {
                 actual_w,
             ),
             Orientation::Landscape | Orientation::ReverseLandscape => {
-                let (rotated, new_w, new_h) = Self::rotate_270(rgba, actual_w, actual_h);
+                let (rotated, new_w, new_h) = Self::rotate_270(&cropped_rgba, actual_w, actual_h);
                 let rx = self
                     .display_width
                     .saturating_sub(y)
                     .saturating_sub(actual_h);
                 let ry = x;
-                (rotated, rx, ry, rx + new_w - 1, ry + new_h - 1, new_w)
+                (std::borrow::Cow::Owned(rotated), rx, ry, rx + new_w - 1, ry + new_h - 1, new_w)
             }
         };
 

@@ -404,7 +404,7 @@
           WLO: cfg.config.WLO,
           CPU_FAN: cfg.config.CPU_FAN,
           PING: cfg.config.PING,
-          WEATHER_API_KEY: cfg.config.WEATHER_API_KEY,
+          WEATHER_API_KEY: cfg.config.WEATHER_API_KEY || '',
           WEATHER_LATITUDE: cfg.config.WEATHER_LATITUDE,
           WEATHER_LONGITUDE: cfg.config.WEATHER_LONGITUDE,
           WEATHER_UNITS: cfg.config.WEATHER_UNITS,

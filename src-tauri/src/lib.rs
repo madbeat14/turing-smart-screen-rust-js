@@ -160,29 +160,20 @@ pub fn run() {
     });
 }
 
-/// Main display loop: sets up the display, spawns the serial TX thread, then runs
-/// the capture loop.
-fn run_display_loop(
-    app_handle: tauri::AppHandle,
-    config: config::DisplayConfig,
-    shared_config: SharedConfig,
-    restart_rx: mpsc::Receiver<()>,
-) -> anyhow::Result<()> {
-    // Give the webview a moment to render its first frame
-    std::thread::sleep(std::time::Duration::from_secs(2));
+struct DisplaySession {
+    display_config: config::DisplayConfig,
+    tx_send: mpsc::SyncSender<TxCommand>,
+    write_reconnected: Arc<AtomicBool>,
+    differ: FrameDiffer,
+    screen_w: u16,
+    screen_h: u16,
+    orientation: Orientation,
+}
 
-    // Create and initialise display
-    let mut display = match create_display(&config) {
-        Ok(d) => d,
-        Err(e) => {
-            warn!(
-                "Could not connect to display: {}. Running without display output.",
-                e
-            );
-            return Ok(());
-        }
-    };
-
+fn try_connect_display(
+    config: &config::DisplayConfig,
+) -> anyhow::Result<(DisplaySession, Orientation)> {
+    let mut display = create_display(config)?;
     display.initialize()?;
 
     if config.reset_on_startup {
@@ -191,6 +182,9 @@ fn run_display_loop(
             warn!("Display reset failed: {}", e);
         }
         loop {
+            if display::serial::is_shutdown() {
+                return Err(anyhow::anyhow!("Shutdown"));
+            }
             match display.initialize() {
                 Ok(()) => break,
                 Err(e) => {
@@ -215,74 +209,150 @@ fn run_display_loop(
     let screen_h = display.get_height();
     info!("Display ready: {}x{}", screen_w, screen_h);
 
-    // AtomicBool: TX thread sets this after a write-error reconnect
     let write_reconnected = Arc::new(AtomicBool::new(false));
     let write_reconnected_tx = write_reconnected.clone();
-
-    // Bounded channel (capacity 1) — natural back-pressure when TX is busy.
     let (tx_send, tx_recv) = mpsc::sync_channel::<TxCommand>(1);
 
-    // Spawn TX thread — takes ownership of display (LcdDisplay: Send).
     let tx_brightness = config.brightness;
     let tx_orientation = orientation;
     std::thread::spawn(move || {
         run_tx_loop(display, tx_recv, write_reconnected_tx, tx_brightness, tx_orientation);
     });
 
-    // --- Capture loop ---
-    let mut differ = FrameDiffer::new(screen_w, screen_h, 16);
-    let mut rgb565_buf: Vec<u8> =
-        Vec::with_capacity((screen_w as usize) * (screen_h as usize) * 2);
+    let differ = FrameDiffer::new(screen_w, screen_h, 16);
+
+    Ok((
+        DisplaySession {
+            display_config: config.clone(),
+            tx_send,
+            write_reconnected,
+            differ,
+            screen_w,
+            screen_h,
+            orientation,
+        },
+        orientation,
+    ))
+}
+
+/// Main display loop: sets up the display, spawns the serial TX thread, then runs
+/// the capture loop. Retries automatically if disconnected and reconfigures dynamically.
+fn run_display_loop(
+    app_handle: tauri::AppHandle,
+    _config: config::DisplayConfig,
+    shared_config: SharedConfig,
+    restart_rx: mpsc::Receiver<()>,
+) -> anyhow::Result<()> {
+    // Give the webview a moment to render its first frame
+    std::thread::sleep(std::time::Duration::from_secs(2));
 
     let window = app_handle
         .get_webview_window("monitor")
         .ok_or_else(|| anyhow::anyhow!("Monitor window not found"))?;
 
+    let mut session: Option<DisplaySession> = None;
     let mut frame_counter: u64 = 0;
+    let mut rgb565_buf: Vec<u8> = Vec::new();
+    let mut logged_disconnect_once = false;
 
     loop {
+        if display::serial::is_shutdown() {
+            info!("Display loop exiting on shutdown");
+            break;
+        }
+
         // Drain all accumulated restart signals
         let mut restart_requested = false;
         while restart_rx.try_recv().is_ok() {
             restart_requested = true;
         }
 
-        if restart_requested {
-            info!("Display restart signal received — reloading config");
-            let (new_brightness, new_orientation) = {
-                let guard = match shared_config.lock() {
-                    Ok(g) => g,
-                    Err(p) => p.into_inner(),
-                };
-                let o = if guard.display.display_reverse {
-                    Orientation::ReverseLandscape
-                } else {
-                    Orientation::Landscape
-                };
-                info!(
-                    "Display config reapplied (brightness={}, reverse={})",
-                    guard.display.brightness, guard.display.display_reverse
-                );
-                (guard.display.brightness, o)
+        // Always read the latest configuration from shared state
+        let current_cfg = {
+            let guard = match shared_config.lock() {
+                Ok(g) => g,
+                Err(p) => p.into_inner(),
             };
-            let _ = tx_send.send(TxCommand::Reinit {
-                brightness: new_brightness,
-                orientation: new_orientation,
-            });
-            differ.reset();
-            std::thread::sleep(std::time::Duration::from_secs(3));
-            frame_counter = 0;
-            info!("Post-restart: resuming screenshot capture");
+            guard.display.clone()
+        };
+
+        // If no active session, attempt connection
+        if session.is_none() {
+            match try_connect_display(&current_cfg) {
+                Ok((new_session, _)) => {
+                    info!("Display connection established on {}", new_session.display_config.com_port);
+                    session = Some(new_session);
+                    frame_counter = 0;
+                    logged_disconnect_once = false;
+                }
+                Err(e) => {
+                    if !logged_disconnect_once {
+                        warn!(
+                            "Could not connect to display: {}. Will retry periodically or on settings apply.",
+                            e
+                        );
+                        logged_disconnect_once = true;
+                    }
+                    // Wait up to 3 seconds, or wake up immediately if a restart/apply signal arrives
+                    match restart_rx.recv_timeout(std::time::Duration::from_secs(3)) {
+                        Ok(()) => info!("Restart signal received while disconnected — retrying connect immediately"),
+                        Err(mpsc::RecvTimeoutError::Timeout) => {}
+                        Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                    }
+                    continue;
+                }
+            }
+        }
+
+        let sess = session.as_mut().unwrap();
+
+        if restart_requested {
+            info!("Display restart signal received — evaluating configuration");
+            let target_orientation = if current_cfg.display_reverse {
+                Orientation::ReverseLandscape
+            } else {
+                Orientation::Landscape
+            };
+
+            // If COM port or hardware revision changed, recreate the display driver
+            let port_changed = sess.display_config.com_port != current_cfg.com_port;
+            let rev_changed = sess.display_config.revision != current_cfg.revision;
+
+            if port_changed || rev_changed {
+                info!(
+                    "Hardware target changed (port: {} -> {}, revision: {} -> {}) — recreating driver",
+                    sess.display_config.com_port, current_cfg.com_port,
+                    sess.display_config.revision, current_cfg.revision
+                );
+                // Dropping session drops tx_send, which signals the old TX loop to exit cleanly
+                session = None;
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                continue;
+            } else {
+                // Re-apply brightness and orientation to the running driver
+                sess.display_config = current_cfg.clone();
+                sess.orientation = target_orientation;
+                let _ = sess.tx_send.send(TxCommand::Reinit {
+                    brightness: current_cfg.brightness,
+                    orientation: target_orientation,
+                });
+                sess.differ.reset();
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                frame_counter = 0;
+                info!("Post-restart: display settings reapplied");
+            }
         }
 
         // Write-error reconnect detected by TX thread
-        if write_reconnected.swap(false, Ordering::Relaxed) {
+        if sess.write_reconnected.swap(false, Ordering::Relaxed) {
             info!("Capture: write-error reconnect signalled — resetting frame differ");
-            differ.reset();
+            sess.differ.reset();
             continue;
         }
 
         // Capture webview screenshot
+        let screen_w = sess.screen_w;
+        let screen_h = sess.screen_h;
         let rgba = match screenshot::capture_webview_screenshot(
             &window,
             screen_w as u32,
@@ -309,7 +379,7 @@ fn run_display_loop(
 
         // Convert to RGB565 and diff against previous frame
         rgba_to_rgb565_le_into(&rgba, &mut rgb565_buf);
-        let mut dirty_rects = differ.diff(&rgb565_buf);
+        let mut dirty_rects = sess.differ.diff(&rgb565_buf);
 
         let full_frame_bytes = (screen_w as usize) * (screen_h as usize) * 2;
         let total_dirty_bytes: usize = dirty_rects
@@ -345,9 +415,10 @@ fn run_display_loop(
             })
             .collect();
 
-        if tx_send.send(TxCommand::Frame(regions)).is_err() {
-            warn!("TX thread exited unexpectedly — stopping capture loop");
-            break;
+        if sess.tx_send.send(TxCommand::Frame(regions)).is_err() {
+            warn!("TX thread exited unexpectedly — resetting session to reconnect");
+            session = None;
+            continue;
         }
 
         frame_counter += 1;
@@ -507,20 +578,34 @@ fn get_config(config: tauri::State<SharedConfig>) -> Result<ClientConfig, AppErr
     })
 }
 
+/// Preserves secrets such as the weather API key if incoming config has it blank
+/// (which happens when clients save from settings after receiving redacted config).
+pub fn merge_config_preserving_secrets(
+    mut incoming: config::AppConfig,
+    existing: &config::AppConfig,
+) -> config::AppConfig {
+    if incoming.config.weather_api_key.trim().is_empty() && !existing.config.weather_api_key.is_empty() {
+        incoming.config.weather_api_key = existing.config.weather_api_key.clone();
+    }
+    incoming
+}
+
 #[tauri::command]
 fn save_config(
     config: tauri::State<SharedConfig>,
     new_config: config::AppConfig,
 ) -> Result<(), AppError> {
+    let mut cfg = match config.lock() {
+        Ok(g) => g,
+        Err(p) => p.into_inner(),
+    };
+
+    let new_config = merge_config_preserving_secrets(new_config, &cfg);
     new_config.validate()?;
 
     let config_path = config::AppConfig::config_path();
     new_config.save_atomic(&config_path)?;
 
-    let mut cfg = match config.lock() {
-        Ok(g) => g,
-        Err(p) => p.into_inner(),
-    };
     *cfg = new_config;
 
     info!("Configuration saved to {}", config_path.display());
@@ -676,5 +761,29 @@ mod tests {
         assert_eq!(epoch_days_to_date(0), (1970, 1, 1));
         assert_eq!(epoch_days_to_date(10957), (2000, 1, 1));
         assert_eq!(epoch_days_to_date(19782), (2024, 2, 29));
+    }
+
+    #[test]
+    fn test_merge_config_preserving_secrets() {
+        let mut existing = config::AppConfig::default();
+        existing.config.weather_api_key = "secret_api_key_12345".to_string();
+
+        // Case 1: incoming has empty API key -> keep existing
+        let mut incoming_blank = config::AppConfig::default();
+        incoming_blank.config.weather_api_key = "".to_string();
+        let merged = merge_config_preserving_secrets(incoming_blank, &existing);
+        assert_eq!(merged.config.weather_api_key, "secret_api_key_12345");
+
+        // Case 2: incoming has whitespace API key -> keep existing
+        let mut incoming_spaces = config::AppConfig::default();
+        incoming_spaces.config.weather_api_key = "   ".to_string();
+        let merged_spaces = merge_config_preserving_secrets(incoming_spaces, &existing);
+        assert_eq!(merged_spaces.config.weather_api_key, "secret_api_key_12345");
+
+        // Case 3: incoming has new non-empty API key -> update to new key
+        let mut incoming_new = config::AppConfig::default();
+        incoming_new.config.weather_api_key = "new_key_67890".to_string();
+        let merged_new = merge_config_preserving_secrets(incoming_new, &existing);
+        assert_eq!(merged_new.config.weather_api_key, "new_key_67890");
     }
 }

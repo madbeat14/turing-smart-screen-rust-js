@@ -197,20 +197,8 @@ impl LcdDisplay for RevADisplay {
             return Ok(());
         }
 
-        // Crop RGBA data if needed
-        let rgba_data = if actual_w != w || actual_h != h {
-            let mut cropped = Vec::with_capacity((actual_w as usize) * (actual_h as usize) * 4);
-            for row in 0..actual_h as usize {
-                let start = (row * w as usize) * 4;
-                let end = start + (actual_w as usize) * 4;
-                if end <= rgba.len() {
-                    cropped.extend_from_slice(&rgba[start..end]);
-                }
-            }
-            cropped
-        } else {
-            rgba.to_vec()
-        };
+        // Crop RGBA data if needed (borrowed zero-copy if full size)
+        let rgba_data = super::crop_rgba_if_needed(rgba, w, actual_w, actual_h);
 
         let (x0, y0) = (x, y);
         let (x1, y1) = (x + actual_w - 1, y + actual_h - 1);
