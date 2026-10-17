@@ -438,6 +438,7 @@ pub fn generate_default_manifest(source_name: &str, target_name: &str) -> String
                     ],
                     "progressField": "cpu_usage", "sparklineField": "cpu_usage",
                     "showSparkline": use_sparklines, "showProgress": true,
+                    "sparklineMode": "auto",
                     "thresholds": {"warning": 60, "critical": 80}
                 },
                 "style": widget_style.clone()
@@ -455,6 +456,7 @@ pub fn generate_default_manifest(source_name: &str, target_name: &str) -> String
                     ],
                     "progressField": "gpu_usage", "sparklineField": "gpu_usage",
                     "showSparkline": use_sparklines, "showProgress": true,
+                    "sparklineMode": "auto",
                     "thresholds": {"warning": 60, "critical": 80}
                 },
                 "style": widget_style.clone()
@@ -471,6 +473,7 @@ pub fn generate_default_manifest(source_name: &str, target_name: &str) -> String
                     ],
                     "progressField": "ram_usage", "sparklineField": "ram_usage",
                     "showSparkline": use_sparklines, "showProgress": true,
+                    "sparklineMode": "auto",
                     "thresholds": {"warning": 70, "critical": 90}
                 },
                 "style": widget_style.clone()
@@ -487,6 +490,7 @@ pub fn generate_default_manifest(source_name: &str, target_name: &str) -> String
                     ],
                     "progressField": "disk_usage", "sparklineField": "disk_usage",
                     "showSparkline": use_sparklines, "showProgress": true,
+                    "sparklineMode": "auto",
                     "thresholds": {"warning": 80, "critical": 95}
                 },
                 "style": widget_style.clone()

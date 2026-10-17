@@ -40,11 +40,29 @@ function renderPropertiesPanel(containerEl, widget, onChange) {
   if (configKeys.length > 0) {
     html.push('<div class="panel-section">');
     html.push('<h4>Configuration</h4>');
+    var isSparklineShown = widget.config.showSparkline !== undefined ? widget.config.showSparkline : true;
+    var curMode = widget.config.sparklineMode || 'auto';
+
     for (var i = 0; i < configKeys.length; i++) {
       var key = configKeys[i];
       var schema = typeInfo.config[key];
       var value = widget.config[key];
       if (value === undefined) value = schema.default;
+
+      // In metric-card, hide sparkline settings if showSparkline is unchecked
+      if (widget.type === 'metric-card' && !isSparklineShown) {
+        if (key === 'sparklineField' || key === 'sparklineMode' || key === 'sparklineMin' || key === 'sparklineMax') {
+          continue;
+        }
+      }
+
+      // Hide custom min/max unless sparklineMode is custom
+      if (key === 'sparklineMin' || key === 'sparklineMax') {
+        if (curMode !== 'custom') {
+          continue;
+        }
+      }
+
       html.push(renderConfigField('cfg-' + key, key, schema, value));
     }
     html.push('</div>');
@@ -252,7 +270,8 @@ function bindPanelEvents(containerEl, widget, onChange) {
         if (schema.type === 'boolean') {
           val = el.checked;
         } else if (schema.type === 'number') {
-          val = parseInt(el.value, 10);
+          val = parseFloat(el.value);
+          if (isNaN(val)) val = 0;
         } else {
           val = el.value;
         }

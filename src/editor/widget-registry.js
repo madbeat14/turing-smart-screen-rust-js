@@ -65,6 +65,19 @@ var WIDGET_TYPES = {
       progressField: { type: 'sensor', default: 'cpu_usage', label: 'Progress Bar Field' },
       sparklineField: { type: 'sensor', default: 'cpu_usage', label: 'Sparkline Field' },
       showSparkline: { type: 'boolean', default: true, label: 'Show Sparkline' },
+      sparklineMode: {
+        type: 'select',
+        default: 'auto',
+        label: 'Sparkline Scale',
+        options: [
+          { value: 'auto', label: 'Auto (Recommended)' },
+          { value: 'static', label: 'Static (0 - 100)' },
+          { value: 'dynamic', label: 'Dynamic (Auto-scale)' },
+          { value: 'custom', label: 'Custom Range' }
+        ]
+      },
+      sparklineMin: { type: 'number', default: 0, label: 'Sparkline Min' },
+      sparklineMax: { type: 'number', default: 100, label: 'Sparkline Max' },
       showProgress: { type: 'boolean', default: true, label: 'Show Progress Bar' },
       thresholds: {
         type: 'thresholds',
@@ -116,7 +129,20 @@ var WIDGET_TYPES = {
     minHeight: 30,
     config: {
       field: { type: 'sensor', default: 'cpu_usage', label: 'Data Field' },
-      maxPoints: { type: 'number', default: 120, label: 'Max Data Points', min: 20, max: 500 }
+      maxPoints: { type: 'number', default: 120, label: 'Max Data Points', min: 20, max: 500 },
+      sparklineMode: {
+        type: 'select',
+        default: 'auto',
+        label: 'Sparkline Scale',
+        options: [
+          { value: 'auto', label: 'Auto (Recommended)' },
+          { value: 'static', label: 'Static (0 - 100)' },
+          { value: 'dynamic', label: 'Dynamic (Auto-scale)' },
+          { value: 'custom', label: 'Custom Range' }
+        ]
+      },
+      sparklineMin: { type: 'number', default: 0, label: 'Sparkline Min' },
+      sparklineMax: { type: 'number', default: 100, label: 'Sparkline Max' }
     }
   },
 

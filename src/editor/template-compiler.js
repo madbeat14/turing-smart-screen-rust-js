@@ -367,6 +367,40 @@ function compileCss(manifest) {
 // ── JS Compiler ───────────────────────────────────────────────
 
 /**
+ * Determine the effective min, max, and mode for a sparkline widget or metric card.
+ * @param {object} w - Widget object
+ * @returns {{mode: string, min: number, max: number}}
+ */
+function resolveSparklineOptions(w) {
+  var c = w.config || {};
+  var field = c.sparklineField || c.field || '';
+  if (field === 'ram_used') field = 'ram_usage';
+  if (field === 'disk_used') field = 'disk_usage';
+
+  var mode = c.sparklineMode || 'auto';
+  if (mode === 'auto') {
+    // Percentage usage and temperatures default to static 0..100
+    if (field.indexOf('_usage') !== -1 || field.indexOf('_temp') !== -1) {
+      return { mode: 'static', min: 0, max: 100 };
+    }
+    // Frequencies (MHz), raw bytes, etc. default to dynamic
+    return { mode: 'dynamic', min: 0, max: 100 };
+  }
+
+  if (mode === 'custom') {
+    var minVal = typeof c.sparklineMin === 'number' ? c.sparklineMin : 0;
+    var maxVal = typeof c.sparklineMax === 'number' ? c.sparklineMax : 100;
+    return { mode: 'custom', min: minVal, max: maxVal };
+  }
+
+  if (mode === 'dynamic') {
+    return { mode: 'dynamic', min: 0, max: 100 };
+  }
+
+  return { mode: 'static', min: 0, max: 100 };
+}
+
+/**
  * Compile app.js from a manifest.
  * @param {object} manifest
  * @returns {string}
@@ -404,11 +438,11 @@ function compileJs(manifest) {
   for (var i = 0; i < manifest.widgets.length; i++) {
     var w = manifest.widgets[i];
     if (w.type === 'metric-card' && w.config.showSparkline) {
-      sparkInits.push({ id: w.id, varName: 'spark_' + sanitizeId(w.id) });
+      sparkInits.push({ id: w.id, varName: 'spark_' + sanitizeId(w.id), options: resolveSparklineOptions(w) });
     }
     if (w.type === 'sparkline') {
       var pts = w.config.maxPoints || 120;
-      sparkInits.push({ id: w.id, varName: 'spark_' + sanitizeId(w.id), maxPoints: pts });
+      sparkInits.push({ id: w.id, varName: 'spark_' + sanitizeId(w.id), maxPoints: pts, options: resolveSparklineOptions(w) });
     }
     if (w.type === 'network-pair' && w.config.showSparkline) {
       netSparkInits.push({ id: w.id, varName: 'netSpark_' + sanitizeId(w.id), maxPoints: w.config.maxPoints || 120 });
@@ -419,7 +453,8 @@ function compileJs(manifest) {
   for (var si = 0; si < sparkInits.length; si++) {
     var sp = sparkInits[si];
     var pts = sp.maxPoints || 'MAX_POINTS';
-    js.push('var ' + sp.varName + ' = createSparkline("spark-' + sp.id + '", ' + pts + ', STATE_COLORS.normal.stroke);');
+    var optsJson = JSON.stringify(sp.options || { mode: 'static', min: 0, max: 100 });
+    js.push('var ' + sp.varName + ' = createSparkline("spark-' + sp.id + '", ' + pts + ', STATE_COLORS.normal.stroke, ' + optsJson + ');');
   }
   for (var ni = 0; ni < netSparkInits.length; ni++) {
     var np = netSparkInits[ni];
@@ -648,12 +683,16 @@ function compileNetworkPairUpdateJs(w) {
 // ── Shared Code Templates ─────────────────────────────────────
 
 var SPARKLINE_FACTORY_CODE = [
-  'function createSparkline(canvasId, maxPoints, strokeColor) {',
+  'function createSparkline(canvasId, maxPoints, strokeColor, options) {',
   '  var canvas = document.getElementById(canvasId);',
   '  if (!canvas) return null;',
   '  var ctx = canvas.getContext("2d");',
   '  var data = [];',
   '  var maxPts = maxPoints || 120;',
+  '  var opts = options || {};',
+  '  var mode = opts.mode || "static";',
+  '  var optMin = typeof opts.min === "number" ? opts.min : 0;',
+  '  var optMax = typeof opts.max === "number" ? opts.max : 100;',
   '  function resize() {',
   '    var rect = canvas.parentElement.getBoundingClientRect();',
   '    var dpr = window.devicePixelRatio || 1;',
@@ -670,17 +709,30 @@ var SPARKLINE_FACTORY_CODE = [
   '      var h = canvas.height / (window.devicePixelRatio || 1);',
   '      ctx.clearRect(0, 0, w, h);',
   '      if (data.length < 2) return;',
-  '      var max = 0;',
-  '      for (var i = 0; i < data.length; i++) { if (data[i] > max) max = data[i]; }',
-  '      if (max < 1) max = 1;',
-  '      max = max * 1.15;',
+  '      var effMin = optMin, effMax = optMax;',
+  '      if (mode === "dynamic") {',
+  '        effMin = 0;',
+  '        var peak = 0;',
+  '        for (var i = 0; i < data.length; i++) { if (data[i] > peak) peak = data[i]; }',
+  '        if (peak < 1) peak = 1;',
+  '        effMax = peak * 1.15;',
+  '      }',
+  '      var span = effMax - effMin;',
+  '      if (span <= 0) span = 1;',
   '      var stepX = w / (maxPts - 1);',
   '      var startX = w - (data.length - 1) * stepX;',
   '      var padBottom = 1;',
+  '      var availHeight = h - padBottom - 1;',
   '      ctx.beginPath();',
-  '      ctx.moveTo(startX, h - padBottom - ((data[0] / max) * (h - padBottom - 1)));',
+  '      var norm0 = (data[0] - effMin) / span;',
+  '      if (norm0 < 0) norm0 = 0;',
+  '      if (norm0 > 1) norm0 = 1;',
+  '      ctx.moveTo(startX, h - padBottom - (norm0 * availHeight));',
   '      for (var j = 1; j < data.length; j++) {',
-  '        ctx.lineTo(startX + j * stepX, h - padBottom - ((data[j] / max) * (h - padBottom - 1)));',
+  '        var norm = (data[j] - effMin) / span;',
+  '        if (norm < 0) norm = 0;',
+  '        if (norm > 1) norm = 1;',
+  '        ctx.lineTo(startX + j * stepX, h - padBottom - (norm * availHeight));',
   '      }',
   '      ctx.strokeStyle = strokeColor;',
   '      ctx.lineWidth = 1.2;',

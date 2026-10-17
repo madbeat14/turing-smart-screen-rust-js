@@ -2,12 +2,16 @@
 
 // ── Sparkline Chart (Canvas API) ──────────────────────────────
 
-function createSparkline(canvasId, maxPoints, strokeColor) {
+function createSparkline(canvasId, maxPoints, strokeColor, options) {
   var canvas = document.getElementById(canvasId);
   if (!canvas) return null;
   var ctx = canvas.getContext('2d');
   var data = [];
   var maxPts = maxPoints || 120;
+  var opts = options || {};
+  var mode = opts.mode || 'static';
+  var optMin = typeof opts.min === 'number' ? opts.min : 0;
+  var optMax = typeof opts.max === 'number' ? opts.max : 100;
 
   function resize() {
     var rect = canvas.parentElement.getBoundingClientRect();
@@ -36,22 +40,38 @@ function createSparkline(canvasId, maxPoints, strokeColor) {
 
       if (data.length < 2) return;
 
-      var max = 0;
-      for (var i = 0; i < data.length; i++) {
-        if (data[i] > max) max = data[i];
+      var effMin = optMin;
+      var effMax = optMax;
+
+      if (mode === 'dynamic') {
+        effMin = 0;
+        var peak = 0;
+        for (var i = 0; i < data.length; i++) {
+          if (data[i] > peak) peak = data[i];
+        }
+        if (peak < 1) peak = 1;
+        effMax = peak * 1.15;
       }
-      if (max < 1) max = 1;
-      max = max * 1.15;
+
+      var span = effMax - effMin;
+      if (span <= 0) span = 1;
 
       var stepX = w / (maxPts - 1);
       var startX = w - (data.length - 1) * stepX;
       var padBottom = 1;
+      var availHeight = h - padBottom - 1;
 
       ctx.beginPath();
-      ctx.moveTo(startX, h - padBottom - ((data[0] / max) * (h - padBottom - 1)));
+      var norm0 = (data[0] - effMin) / span;
+      if (norm0 < 0) norm0 = 0;
+      if (norm0 > 1) norm0 = 1;
+      ctx.moveTo(startX, h - padBottom - (norm0 * availHeight));
       for (var j = 1; j < data.length; j++) {
         var x = startX + j * stepX;
-        var y = h - padBottom - ((data[j] / max) * (h - padBottom - 1));
+        var norm = (data[j] - effMin) / span;
+        if (norm < 0) norm = 0;
+        if (norm > 1) norm = 1;
+        var y = h - padBottom - (norm * availHeight);
         ctx.lineTo(x, y);
       }
 
@@ -173,10 +193,10 @@ function applyState(cardId, state) {
 
 var MAX_POINTS = 120;
 
-var cpuSpark = createSparkline('cpu-spark', MAX_POINTS, STATE_COLORS.normal.stroke);
-var gpuSpark = createSparkline('gpu-spark', MAX_POINTS, STATE_COLORS.normal.stroke);
-var memSpark = createSparkline('mem-spark', MAX_POINTS, STATE_COLORS.normal.stroke);
-var diskSpark = createSparkline('disk-spark', MAX_POINTS, STATE_COLORS.normal.stroke);
+var cpuSpark = createSparkline('cpu-spark', MAX_POINTS, STATE_COLORS.normal.stroke, { mode: 'static', min: 0, max: 100 });
+var gpuSpark = createSparkline('gpu-spark', MAX_POINTS, STATE_COLORS.normal.stroke, { mode: 'static', min: 0, max: 100 });
+var memSpark = createSparkline('mem-spark', MAX_POINTS, STATE_COLORS.normal.stroke, { mode: 'static', min: 0, max: 100 });
+var diskSpark = createSparkline('disk-spark', MAX_POINTS, STATE_COLORS.normal.stroke, { mode: 'static', min: 0, max: 100 });
 var netSpark = createNetSparkline('net-spark', MAX_POINTS);
 
 
